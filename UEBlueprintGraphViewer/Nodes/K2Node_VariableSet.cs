@@ -9,9 +9,13 @@ namespace UEBlueprintGraphViewer.Nodes
         public GraphPin ValuePin;
 
         // Object to set this variable
-        private GraphPin? ContextPin;
+        public GraphPin? ContextPin;
         
         public PropertyData Property;
+
+        public bool IsSetByRefVar =>
+            ContextPin is { } pin &&
+            (pin.PinName == "Reference" || pin.PinFriendlyName == "Reference");
         
         public K2Node_VariableSet(PropertyData data, GraphPin ValuePin, GraphPin? ContextPin, KismetExpression Instr) : base("SET", Instr)
         {

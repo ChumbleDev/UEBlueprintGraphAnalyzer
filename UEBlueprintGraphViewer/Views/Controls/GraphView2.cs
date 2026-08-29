@@ -94,6 +94,8 @@ public class GraphView2 : ContentControl
     
     private List<BPNode> _selectedNodesBeforeSelection = [];
     private BPNode? _mouseOverNode;
+    private K2Node_Comment? _mouseOverCommentClose;
+    private static readonly Cursor CloseButtonCursor = new(StandardCursorType.Hand);
 
     public bool DisableMoving;
 
@@ -131,9 +133,18 @@ public class GraphView2 : ContentControl
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         var props = e.GetCurrentPoint(this).Properties;
-        _mousePosOnGraphOnPress = _mousePosOnGraph;
+        _lastMousePosition = e.GetPosition(this);
+        _mousePosOnGraphOnPress = (_lastMousePosition + Translation) / Scaling;
+        _mousePosOnGraph = _mousePosOnGraphOnPress;
         if (props.IsLeftButtonPressed)
         {
+            if (FindCommentCloseAt(_mousePosOnGraph) is { } comment)
+            {
+                DismissLikelyMacroComment(comment);
+                e.Handled = true;
+                InvalidateVisual();
+                return;
+            }
             UpdateNodesSelection(e);
             _isDraggingNode = _mouseOverNode != null;
             _isSelecting = !_isDraggingNode;
@@ -187,6 +198,9 @@ public class GraphView2 : ContentControl
             o is not K2Node_Comment &&
             _mousePosOnGraph.X > o.X && _mousePosOnGraph.Y > o.Y &&
             _mousePosOnGraph.X < o.Right && _mousePosOnGraph.Y < o.Bottom);
+
+        _mouseOverCommentClose = _mouseOverNode == null ? FindCommentCloseAt(_mousePosOnGraph) : null;
+        Cursor = _mouseOverCommentClose != null ? CloseButtonCursor : Cursor.Default;
         
         if (_mouseOverNode != null)
         {
@@ -248,6 +262,26 @@ public class GraphView2 : ContentControl
         _mousePosOnGraph = newGraphPos;
         
         InvalidateVisual();
+    }
+
+    private K2Node_Comment? FindCommentCloseAt(Point graphPos)
+    {
+        return Editor?.Nodes.OfType<K2Node_Comment>()
+            .FirstOrDefault(o => o.HitTestClose((float)graphPos.X, (float)graphPos.Y));
+    }
+
+    private void DismissLikelyMacroComment(K2Node_Comment comment)
+    {
+        if (Editor == null)
+            return;
+
+        if (Editor.Graph != null)
+            LikelyMacroAnnotator.Dismiss(Editor.Graph, comment);
+
+        Editor.Nodes.Remove(comment);
+        Editor.SelectedNodes.Remove(comment);
+        _mouseOverCommentClose = null;
+        Cursor = Cursor.Default;
     }
 
     private void UpdateNodesSelection(PointerEventArgs e)
@@ -345,6 +379,8 @@ public class GraphView2 : ContentControl
         private static readonly SKPaint CommentFill = SkiaUtils.MakePaint(18, 86, 62, 95);
         private static readonly SKPaint CommentBorder = SkiaUtils.MakeStroke(1.5f, 72, 168, 128, 210);
         private static readonly SKPaint CommentTitle = SkiaUtils.MakePaint(230, 245, 235, 255);
+        private static readonly SKPaint CommentCloseHover = SkiaUtils.MakePaint(0, 0, 0, 70);
+        private static readonly SKPaint CommentCloseX = SkiaUtils.MakeStroke(1.6f, 230, 245, 235, 255);
         
         private const byte NodeBodyAlpha = 235;
         private const byte CompactNodeBodyAlpha = 175;
@@ -556,11 +592,25 @@ public class GraphView2 : ContentControl
                 canvas.DrawRoundRect(rect, 6, 6, CommentFill);
                 canvas.DrawRoundRect(rect, 6, 6, CommentBorder);
                 canvas.DrawText2(node.Name, node.X + 10, node.Y + 18, SKTextAlign.Left, TextFont, CommentTitle);
+                RenderCommentClose(canvas, node);
             }
             else
             {
                 canvas.DrawRect(rect, CommentFill);
             }
+        }
+
+        private void RenderCommentClose(SKCanvas canvas, K2Node_Comment node)
+        {
+            node.GetCloseButtonRect(out float x, out float y, out float size);
+            float midX = x + size / 2f;
+            float midY = y + size / 2f;
+            if (ReferenceEquals(view._mouseOverCommentClose, node))
+                canvas.DrawCircle(midX, midY, size / 2f, CommentCloseHover);
+
+            const float inset = 4.5f;
+            canvas.DrawLine(x + inset, y + inset, x + size - inset, y + size - inset, CommentCloseX);
+            canvas.DrawLine(x + size - inset, y + inset, x + inset, y + size - inset, CommentCloseX);
         }
 
         private void RenderNode(SKCanvas canvas, BPNode node)

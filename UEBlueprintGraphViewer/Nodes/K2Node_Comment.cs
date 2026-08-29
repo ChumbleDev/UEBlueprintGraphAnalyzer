@@ -10,7 +10,9 @@ namespace UEBlueprintGraphViewer.Nodes
 
         const float PadX = 28f;
         const float PadY = 18f;
-        const float TitleHeight = 24f;
+        const float TitleHeight = 28f;
+        public const float CloseButtonSize = 16f;
+        const float CloseButtonInset = 6f;
 
         public List<BPNode> Members { get; }
 
@@ -23,6 +25,19 @@ namespace UEBlueprintGraphViewer.Nodes
 
         public override void CalculateSize()
         {
+        }
+
+        public void GetCloseButtonRect(out float x, out float y, out float size)
+        {
+            size = CloseButtonSize;
+            x = Right - CloseButtonInset - size;
+            y = Y + CloseButtonInset;
+        }
+
+        public bool HitTestClose(float x, float y)
+        {
+            GetCloseButtonRect(out float left, out float top, out float size);
+            return x >= left && x <= left + size && y >= top && y <= top + size;
         }
 
         public void FitToMembers()
