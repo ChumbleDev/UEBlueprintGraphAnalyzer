@@ -99,6 +99,17 @@ public partial class NodeContextMenu : UserControl
             editor.Editor?.RemoveNode(node);
         }
         editor.Editor?.SelectedNodes.Clear();
+        if (editor.Editor is { } ed)
+        {
+            foreach (var comment in ed.Nodes.OfType<K2Node_Comment>().ToList())
+            {
+                comment.Members.RemoveAll(n => !ed.Nodes.Contains(n));
+                if (comment.Members.Count < 2)
+                    ed.RemoveNode(comment);
+                else
+                    comment.FitToMembers();
+            }
+        }
         flyout.Hide();
     }
 }

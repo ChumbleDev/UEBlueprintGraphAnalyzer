@@ -96,6 +96,11 @@ namespace UEBlueprintGraphViewer.Views
                 AssetInfoPanel.SelectFunction(target);
                 await OpenFunction(target);
             }
+            else if (VM.Asset.Macros.FirstOrDefault() is { } macro)
+            {
+                AssetInfoPanel.SelectMacro(macro);
+                await OpenMacro(macro);
+            }
         }
 
         public void DisableProgress()
@@ -143,6 +148,32 @@ namespace UEBlueprintGraphViewer.Views
         public async void AssetInfoPanel_FunctionChoosen(object sender, AssetFunctionViewModel func)
         {
             await OpenFunction(func);
+        }
+
+        public async void AssetInfoPanel_MacroChoosen(object sender, AssetMacroViewModel macro)
+        {
+            await OpenMacro(macro);
+        }
+
+        public Task OpenMacro(AssetMacroViewModel macro)
+        {
+            VM.CurrentFunction = null;
+            VM.CurrentMacro = macro;
+            _lastFunc = null;
+
+            Clear();
+            _graph = macro.Graph ?? new();
+            _graph2 = new();
+            Json = "{}";
+
+            FirstViewer.Editor = GraphViewModel;
+            SecondViewer.Editor = GraphViewModel2;
+            AddNodesToLoad(_graph, _graph2);
+            InstructionsViewer.SetBytecode(Json);
+            DisableProgress();
+
+            RepositionViewport(FirstViewer, _graph.MacroInputNode ?? _graph.Nodes.FirstOrDefault());
+            return Task.CompletedTask;
         }
 
         public async Task OpenFunction(AssetFunctionViewModel func)
@@ -240,6 +271,7 @@ namespace UEBlueprintGraphViewer.Views
             AddNodesToLoad(_graph, _graph2);
             InstructionsViewer.SetBytecode(Json);
             DisableProgress();
+            CollectMacrosFromGraph(_graph, func.ToString());
         }
 
         private async Task DecompileAndCheck(AssetFunctionViewModel func, FunctionDecompiler decompiler)
@@ -261,6 +293,26 @@ namespace UEBlueprintGraphViewer.Views
                 }
                 await DialogWindow.Show(sw.ToString(), "Decompiling result");
             }
+        }
+
+        private void CollectMacrosFromGraph(BPGraph graph, string functionName)
+        {
+            if (VM.Asset.Asset == null || Settings.Instance.IsInCompareMode)
+                return;
+
+            bool added = false;
+            foreach (var group in graph.Nodes.OfType<K2Node_MacroInstance>()
+                         .Where(o => !EngineMacros.IsBuiltIn(o.Name))
+                         .GroupBy(o => o.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                int before = VM.Asset.Asset.Macros.Count;
+                VM.Asset.Asset.AddOrUpdateMacro(group.Key, EngineMacros.FindSavedGraph(group.Key), functionName, group.Count());
+                if (VM.Asset.Asset.Macros.Count > before)
+                    added = true;
+            }
+
+            if (added)
+                VM.Asset.RefreshMacros();
         }
 
         public void UpdateSecondViewerState()
@@ -455,5 +507,8 @@ namespace UEBlueprintGraphViewer.Views
         
         [ObservableProperty]
         private AssetFunctionViewModel? _currentFunction;
+
+        [ObservableProperty]
+        private AssetMacroViewModel? _currentMacro;
     }
 }

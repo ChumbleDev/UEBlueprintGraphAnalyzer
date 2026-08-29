@@ -30,12 +30,19 @@ namespace UEBlueprintGraphViewer
         public BPNode? MacroOutputNode;
 
         public string MacroName;
+
+        internal readonly List<List<BPNode>> LikelyMacroRegions = [];
         
         public delegate void UpdateProgressDelegate(int count, int countMax);
 
         public void AddNode(BPNode Node)
         {
             Nodes.Add(Node);
+        }
+
+        public void DetectLikelyMacroRegions()
+        {
+            LikelyMacroAnnotator.Detect(this);
         }
 
         public void RemoveNode(BPNode Node)
@@ -543,6 +550,8 @@ namespace UEBlueprintGraphViewer
             {
                 //GraphDebugDrawing.DrawGraph(graphs);
             }
+
+            LikelyMacroAnnotator.PlaceComments(this);
         }
 
         private static SugiyamaLayoutSettings MakeMSAGLSettings()

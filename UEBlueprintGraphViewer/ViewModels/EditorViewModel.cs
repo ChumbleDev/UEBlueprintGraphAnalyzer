@@ -176,7 +176,7 @@ namespace UEBlueprintGraphViewer.ViewModels
                         (o is K2Node_VariableSet set && Compare(set.ValuePin.PinFriendlyName))))
                     return true;
                 
-                if (!IsSearchingVariable && !IsSearchingFunction)
+                if (!IsSearchingVariable && !IsSearchingFunction && o is not K2Node_Comment)
                     return Compare(o.Name) || 
                            o.Input.Any(o => !o.IsHidden && (Compare(o.PinFriendlyName) || Compare(o.Value))) ||
                            o.Output.Any(o => !o.IsHidden && Compare(o.PinFriendlyName));

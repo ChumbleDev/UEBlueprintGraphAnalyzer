@@ -1,0 +1,44 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace UEBlueprintGraphViewer.Nodes
+{
+    public class K2Node_Comment : BPNode
+    {
+        public const string LikelyMacroTitle = "Likely a macro.";
+
+        const float PadX = 28f;
+        const float PadY = 18f;
+        const float TitleHeight = 24f;
+
+        public List<BPNode> Members { get; }
+
+        public K2Node_Comment(IEnumerable<BPNode> members) : base(LikelyMacroTitle, null)
+        {
+            HeaderHidden = true;
+            Members = [.. members];
+            FitToMembers();
+        }
+
+        public override void CalculateSize()
+        {
+        }
+
+        public void FitToMembers()
+        {
+            var live = Members.Where(o => o is not K2Node_Comment).ToList();
+            if (live.Count == 0)
+                return;
+
+            float minX = live.Min(o => o.X);
+            float minY = live.Min(o => o.Y);
+            float maxX = live.Max(o => o.Right);
+            float maxY = live.Max(o => o.Bottom);
+
+            SetPosition(minX - PadX, minY - PadY - TitleHeight);
+            NodeWidth = Math.Max(160, (int)Math.Ceiling(maxX - minX + PadX * 2));
+            NodeHeight = Math.Max(48, (int)Math.Ceiling(maxY - minY + PadY * 2 + TitleHeight));
+        }
+    }
+}

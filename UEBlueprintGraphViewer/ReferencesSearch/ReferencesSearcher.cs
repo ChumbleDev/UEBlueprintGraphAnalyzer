@@ -162,7 +162,24 @@ public class ReferencesSearcher
         return result.ToArray();
     }
 
-    private static async Task IterateInstructions(PackageData package, GameSettings game, UpdateProgress? update, Action<GameFile, string, BPGraph> action)
+    public static async Task<(GameFile, string, int)[]> FindMacroInstances(PackageData package, GameSettings game, Asset? sourceAsset, string macroName, UpdateProgress? update)
+    {
+        BlockingCollection<(GameFile, string, int)> result = [];
+        string? skipPath = sourceAsset == null ? null : AssetsUtils.FixAssetPath(sourceAsset.Name);
+
+        await IterateInstructions(package, game, update, (file, func, graph) =>
+        {
+            foreach (var node in graph.Nodes.OfType<K2Node_MacroInstance>())
+            {
+                if (node.Name.Equals(macroName, StringComparison.OrdinalIgnoreCase))
+                    result.Add((file, func, node.StatementIndex));
+            }
+        }, parseMacros: true, skipPackageName: skipPath);
+
+        return result.ToArray();
+    }
+
+    private static async Task IterateInstructions(PackageData package, GameSettings game, UpdateProgress? update, Action<GameFile, string, BPGraph> action, bool parseMacros = false, string? skipPackageName = null)
     {
         GameFile[] allAssets = package.Assets.Where(o => (o.Extension == "uasset" || o.Extension == "umap")).ToArray();
         int counter = 0;
@@ -173,6 +190,10 @@ public class ReferencesSearcher
             if (counter % 20 == 0)
                 update?.Invoke(counter, allAssets.Length);
             counter++;
+
+            if (skipPackageName != null &&
+                AssetsUtils.FixAssetPath(file.PathWithoutExtension).EqualsFName(skipPackageName))
+                return;
             
             try
             {
@@ -180,13 +201,13 @@ public class ReferencesSearcher
             
                 foreach (var func in asset.Functions)
                 {
-                    var d = DecompileFunc(asset, game, func);
+                    var d = DecompileFunc(asset, game, func, parseMacros);
                     action.Invoke(file, func.Name, d.Graph);
                 }
             
                 if (asset.SortedEvents.Count > 0)
                 {
-                    var d = DecompileFunc(asset, game, asset.SortedEvents[0]);
+                    var d = DecompileFunc(asset, game, asset.SortedEvents[0], parseMacros);
                     action.Invoke(file, asset.UbergraphFunction.Name, d.Graph);
                 }
             }
@@ -195,10 +216,10 @@ public class ReferencesSearcher
                 //errors.Add(ex.Message + "\n" + ex.StackTrace);
             }
             
-            static FunctionDecompiler DecompileFunc(Asset asset, GameSettings game, UFunction func)
+            static FunctionDecompiler DecompileFunc(Asset asset, GameSettings game, UFunction func, bool parseMacros)
             {
                 var decompiler = new FunctionDecompiler(asset, game, func);
-                decompiler.GlobalContext.IsParsingMacros = false;
+                decompiler.GlobalContext.IsParsingMacros = parseMacros;
                 decompiler.Decompile(null);
                 return decompiler;
             }

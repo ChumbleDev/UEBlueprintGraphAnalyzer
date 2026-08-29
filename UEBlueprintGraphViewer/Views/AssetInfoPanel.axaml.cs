@@ -15,13 +15,15 @@ namespace UEBlueprintGraphViewer.Views
     public partial class AssetInfoPanel : UserControl
     {
         public event EventHandler<AssetFunctionViewModel>? FunctionChoosen;
+        public event EventHandler<AssetMacroViewModel>? MacroChoosen;
         
         public EventHandler<string>? OnPropertySearchInCurrentGraph;
         public EventHandler<string>? OnFunctionSearchInCurrentGraph;
         
         public EventHandler<object>? OnObjectSelected;
 
-        private AssetFunctionViewModel lastSelected;
+        private AssetFunctionViewModel? lastSelected;
+        private AssetMacroViewModel? lastSelectedMacro;
 
         public AssetInfoPanel()
         {
@@ -47,16 +49,28 @@ namespace UEBlueprintGraphViewer.Views
 
         public void InvokeSelected()
         {
-            FunctionChoosen?.Invoke(this, lastSelected);
+            if (lastSelected != null)
+                FunctionChoosen?.Invoke(this, lastSelected);
         }
         
         public void SelectFunction(AssetFunctionViewModel func)
         {
             lastSelected = func;
+            lastSelectedMacro = null!;
             if (EventList.ItemsSource?.Cast<AssetFunctionViewModel>().Contains(func) == true)
                 EventList.SelectedItem = func;
             else
                 FunctionList.SelectedItem = func;
+            MacroList.SelectedIndex = -1;
+        }
+
+        public void SelectMacro(AssetMacroViewModel macro)
+        {
+            lastSelectedMacro = macro;
+            MacroList.SelectedItem = macro;
+            EventList.SelectedIndex = -1;
+            FunctionList.SelectedIndex = -1;
+            PropertyList.SelectedIndex = -1;
         }
         
         private void PropertySearchInCurrentGraph_OnClick(object? sender, RoutedEventArgs e)
@@ -144,6 +158,7 @@ namespace UEBlueprintGraphViewer.Views
                 OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
                 FunctionList.SelectedIndex = -1;
                 PropertyList.SelectedIndex = -1;
+                MacroList.SelectedIndex = -1;
             }
         }
 
@@ -154,6 +169,7 @@ namespace UEBlueprintGraphViewer.Views
                 OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
                 EventList.SelectedIndex = -1;
                 PropertyList.SelectedIndex = -1;
+                MacroList.SelectedIndex = -1;
             }
         }
 
@@ -164,6 +180,57 @@ namespace UEBlueprintGraphViewer.Views
                 OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
                 EventList.SelectedIndex = -1;
                 FunctionList.SelectedIndex = -1;
+                MacroList.SelectedIndex = -1;
+            }
+        }
+
+        private void MacroList_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count > 0)
+            {
+                OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
+                EventList.SelectedIndex = -1;
+                FunctionList.SelectedIndex = -1;
+                PropertyList.SelectedIndex = -1;
+            }
+        }
+
+        private void MacroList_DoubleTapped(object sender, TappedEventArgs e)
+        {
+            if (sender is Visual { DataContext: AssetMacroViewModel macro })
+            {
+                lastSelectedMacro = macro;
+                MacroChoosen?.Invoke(this, lastSelectedMacro);
+            }
+        }
+
+        private async void MacroSearchGlobal_OnClick(object? sender, RoutedEventArgs e)
+        {
+            if (Settings.Instance.IsInCompareMode)
+            {
+                await DialogWindow.Show("Finding assets references is not available in compare mode", "Search");
+                return;
+            }
+
+            if (sender is Visual { DataContext: AssetMacroViewModel macro } && DataContext is AssetViewModel { Asset: { } currentAsset })
+            {
+                var dialog = new ProgressWindow("Search", "Finding macro instances:");
+                dialog.Open(MainWindow.Instance);
+                var result = await ReferencesSearcher.FindMacroInstances(MainWindow.Package!, Settings.Instance.Game, currentAsset, macro.Name, dialog.Update);
+                MainWindow.Instance.AddTab(new()
+                {
+                    Header = $"References of {currentAsset.ObjectName}:{macro.Name}",
+                    Classes = { "Closeable" },
+                    Content = new AssetReferencesResultView($"Found {result.Length} instances of {currentAsset.ObjectName}:{macro.Name}",
+                        result.Select(o => new ReferenceResult()
+                        {
+                            File = new AssetFile(o.Item1.Name, o.Item1.Path),
+                            Function = o.Item2,
+                            NodeStatementIndex = o.Item3
+                        }).ToList())
+                });
+
+                dialog.Close();
             }
         }
     }

@@ -36,9 +36,10 @@
 	</UserControl.Resources>
 	
 	<Grid ColumnDefinitions="240,5,*">
-		<views:AssetInfoPanel Grid.Column="0"
+        <views:AssetInfoPanel Grid.Column="0"
 		                      x:Name="AssetInfoPanel"
 		                      FunctionChoosen="AssetInfoPanel_FunctionChoosen"
+		                      MacroChoosen="AssetInfoPanel_MacroChoosen"
 		                      DataContext="{Binding Asset}"/>
 		
 		<GridSplitter Grid.Column="1"/>
@@ -124,6 +125,56 @@
 													<ListBox ItemsSource="{Binding Locals}"
 													         Grid.Row="7"
 													         ItemTemplate="{StaticResource PropsTemplate}"/>
+												</Grid>
+											</ScrollViewer>
+										</DataTemplate>
+										<DataTemplate x:DataType="viewModels:AssetMacroViewModel">
+											<ScrollViewer HorizontalScrollBarVisibility="Disabled">
+												<Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Background="{StaticResource Background2}">
+													<TextBlock Text="Macro"
+													           Classes="HeaderSmall"/>
+													<StackPanel Margin="10"
+													            Spacing="7"
+													            Grid.Row="1">
+														<TextBlock TextWrapping="Wrap">
+															<Run Text="Name:"/>
+															<Run Text="{Binding Name}"/>
+														</TextBlock>
+														<TextBlock TextWrapping="Wrap">
+															<Run Text="Reconstructed graph:"/>
+															<Run Text="{Binding HasGraph}"/>
+														</TextBlock>
+														<TextBlock TextWrapping="Wrap">
+															<Run Text="Instances found:"/>
+															<Run Text="{Binding InstanceCount}"/>
+														</TextBlock>
+														<TextBlock TextWrapping="Wrap"
+														           IsVisible="{Binding LeftoverSource, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+															<Run Text="Leftover source:"/>
+															<Run Text="{Binding LeftoverSource}"/>
+														</TextBlock>
+														<TextBlock TextWrapping="Wrap"
+														           IsVisible="{Binding FoundIn, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+															<Run Text="Found in:"/>
+															<Run Text="{Binding FoundIn}"/>
+														</TextBlock>
+														<TextBlock TextWrapping="Wrap"
+														           IsVisible="{Binding !HasGraph}">
+															<Run Text="Cooked macros are inlined into caller blueprints, so this library has no bytecode of its own. Open a blueprint that used the macro, or save a pattern with Collapse to Macro, to reconstruct the graph."/>
+														</TextBlock>
+													</StackPanel>
+													<TextBlock Text="Inputs"
+													           Grid.Row="2"
+													           Classes="HeaderSmall"
+													           Background="{StaticResource Background3}"/>
+													<ListBox ItemsSource="{Binding InputNames}"
+													         Grid.Row="3"/>
+													<TextBlock Text="Outputs"
+													           Grid.Row="4"
+													           Classes="HeaderSmall"
+													           Background="{StaticResource Background3}"/>
+													<ListBox ItemsSource="{Binding OutputNames}"
+													         Grid.Row="5"/>
 												</Grid>
 											</ScrollViewer>
 										</DataTemplate>

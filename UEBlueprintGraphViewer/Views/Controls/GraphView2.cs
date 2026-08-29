@@ -183,7 +183,8 @@ public class GraphView2 : ContentControl
         var newPos = e.GetPosition(this);
         var newGraphPos = (newPos + Translation) / Scaling;
 
-        _mouseOverNode = Editor?.Nodes.FirstOrDefault(o => 
+        _mouseOverNode = Editor?.Nodes.FirstOrDefault(o =>
+            o is not K2Node_Comment &&
             _mousePosOnGraph.X > o.X && _mousePosOnGraph.Y > o.Y &&
             _mousePosOnGraph.X < o.Right && _mousePosOnGraph.Y < o.Bottom);
         
@@ -215,6 +216,9 @@ public class GraphView2 : ContentControl
             {
                 node.SetPosition(node.X + offsetX, node.Y + offsetY);
             }
+
+            foreach (var comment in Editor?.Nodes.OfType<K2Node_Comment>() ?? [])
+                comment.FitToMembers();
         }
         
         if (_isSelecting && Editor != null)
@@ -225,6 +229,7 @@ public class GraphView2 : ContentControl
             var maxY = Math.Max(_mousePosOnGraphOnPress.Y, _mousePosOnGraph.Y);
 
             var selected = Editor.Nodes.Where(o =>
+                o is not K2Node_Comment &&
                 o.X < maxX && minX < o.Right &&
                 o.Y < maxY && minY < o.Bottom).ToList();
             var toAdd = selected.Where(o => !_selectedNodesBeforeSelection.Contains(o));
@@ -337,6 +342,9 @@ public class GraphView2 : ContentControl
         private static readonly SKPaint SelectionBorder = SkiaUtils.MakeStroke(1, 30,80,150);
         private static readonly SKPaint TextPaint = SkiaUtils.MakePaint(255, 255, 255, 255);
         private static readonly SKPaint TextPaint2 = SkiaUtils.MakePaint(255, 255, 255, 128);
+        private static readonly SKPaint CommentFill = SkiaUtils.MakePaint(18, 86, 62, 95);
+        private static readonly SKPaint CommentBorder = SkiaUtils.MakeStroke(1.5f, 72, 168, 128, 210);
+        private static readonly SKPaint CommentTitle = SkiaUtils.MakePaint(230, 245, 235, 255);
         
         private const byte NodeBodyAlpha = 235;
         private const byte CompactNodeBodyAlpha = 175;
@@ -367,6 +375,12 @@ public class GraphView2 : ContentControl
 
                 if (view.Editor is not null)
                 {
+                    foreach (var comment in view.Editor.Nodes.OfType<K2Node_Comment>())
+                    {
+                        if (IsNodeInView(comment))
+                            RenderComment(canvas, comment);
+                    }
+
                     foreach (var connection in view.Editor.Connections)
                     {
                         var pin = connection.Source;
@@ -392,6 +406,8 @@ public class GraphView2 : ContentControl
                     
                     foreach (var node in view.Editor.Nodes)
                     {
+                        if (node is K2Node_Comment)
+                            continue;
                         if (IsNodeInView(node))
                             RenderNode(canvas, node);
                     }
@@ -530,6 +546,21 @@ public class GraphView2 : ContentControl
             if (y1 > maxY && y2 > maxY)
                 return false;
             return true;
+        }
+
+        private void RenderComment(SKCanvas canvas, K2Node_Comment node)
+        {
+            SKRect rect = new(node.X, node.Y, node.Right, node.Bottom);
+            if (view.Scaling > 0.2)
+            {
+                canvas.DrawRoundRect(rect, 6, 6, CommentFill);
+                canvas.DrawRoundRect(rect, 6, 6, CommentBorder);
+                canvas.DrawText2(node.Name, node.X + 10, node.Y + 18, SKTextAlign.Left, TextFont, CommentTitle);
+            }
+            else
+            {
+                canvas.DrawRect(rect, CommentFill);
+            }
         }
 
         private void RenderNode(SKCanvas canvas, BPNode node)

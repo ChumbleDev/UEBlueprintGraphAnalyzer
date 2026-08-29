@@ -119,6 +119,9 @@ namespace UEBlueprintGraphViewer.Decompiler
             
             foreach (var node in toRemove)
                 Graph.RemoveNode(node);
+
+            if (GlobalContext.IsParsingMacros)
+                Graph.DetectLikelyMacroRegions();
             
             if (Graph.Nodes.Where(o => o is K2Node_TemporaryVariable or K2Node_AssignmentStatement) is {} tempNodes && tempNodes.Any())
                 _result.AddProblem($"Found direct local variables calls. " +

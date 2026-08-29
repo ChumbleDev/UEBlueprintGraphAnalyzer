@@ -110,7 +110,7 @@ namespace UEBlueprintGraphViewer.Nodes
             NodeType = GetType().Name;
         }
 
-        public void CalculateSize()
+        public virtual void CalculateSize()
         {
             //Approximate size
 

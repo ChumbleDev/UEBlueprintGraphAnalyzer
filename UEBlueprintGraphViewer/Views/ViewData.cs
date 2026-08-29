@@ -65,6 +65,7 @@ namespace UEBlueprintGraphViewer.Views
             { "IfThenElse", FromColor(new SKColor(130, 130, 130)) },
             { "ExecutionSequence", FromColor(new SKColor(130, 130, 130)) },
             { "MacroInstance", FromColor(new SKColor(130, 130, 130)) },
+            { "Comment", FromColor(new SKColor(18, 86, 62)) },
             { "VariableSet", FromColor(new SKColor(85, 85, 85)) },
             { "DynamicCast", FromColor(new SKColor(19, 114, 118)) },
             { "ClassDynamicCast", FromColor(new SKColor(63, 20, 111)) },

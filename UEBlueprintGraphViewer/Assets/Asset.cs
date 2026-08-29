@@ -10,6 +10,7 @@ using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.Utils;
 using UEBlueprintGraphViewer.Engine;
 using static UEBlueprintGraphViewer.Engine.EngineBPData;
+using static UEBlueprintGraphViewer.Engine.EngineEnums;
 using static UEBlueprintGraphViewer.Engine.Utils;
 
 namespace UEBlueprintGraphViewer.Assets
@@ -33,6 +34,10 @@ namespace UEBlueprintGraphViewer.Assets
 
         public readonly List<InputEventData> InputEvents = [];
         public readonly List<TimelineData> Timelines = [];
+        public readonly List<AssetMacro> Macros = [];
+
+        public EBlueprintType BlueprintType = EBlueprintType.Normal;
+        public bool IsMacroLibrary => BlueprintType == EBlueprintType.MacroLibrary;
         
         public readonly string SuperStruct;
         
@@ -56,6 +61,7 @@ namespace UEBlueprintGraphViewer.Assets
             ClassDefaultObject = GeneratedClass.ClassDefaultObject.Load<UObject>();
             SuperStruct = GeneratedClass.SuperStruct.ResolvedObject?.GetPathName() ?? "None";
             ProcessBPClass();
+            CollectMacroData(package, name);
         }
 
         public bool IsEvent(UFunction? func) => _events.Contains(func);
@@ -316,6 +322,84 @@ namespace UEBlueprintGraphViewer.Assets
                 }
             }
             
+        }
+
+        // Cooked macro libraries (and local macros on normal BPs) have no Kismet bytecode.
+        // Names and leftover editor graphs may still survive on the UBlueprint / UEdGraph exports.
+        private void CollectMacroData(IPackage package, string assetName)
+        {
+            try
+            {
+                MacroLeftoverReader.Collect(this, package, assetName);
+            }
+            catch
+            {
+                // leftover editor data is optional; keep the asset usable without it
+            }
+        }
+
+        public void AddMacro(string name, BPGraph? graph = null, string? leftoverSource = null)
+        {
+            if (string.IsNullOrWhiteSpace(name) ||
+                Macros.Any(o => o.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                var existing = Macros.Find(o => o.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (existing == null)
+                    return;
+                existing.Graph ??= graph ?? EngineMacros.FindSavedGraph(name);
+                if (string.IsNullOrEmpty(existing.LeftoverSource))
+                    existing.LeftoverSource = leftoverSource;
+                return;
+            }
+
+            Macros.Add(new AssetMacro
+            {
+                Name = name,
+                Graph = graph ?? EngineMacros.FindSavedGraph(name),
+                LeftoverSource = leftoverSource
+            });
+        }
+
+        public void AddOrUpdateMacro(string name, BPGraph? graph, string? foundIn, int instances = 1)
+        {
+            if (EngineMacros.IsBuiltIn(name))
+                return;
+
+            var existing = Macros.Find(o => o.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (existing == null)
+            {
+                Macros.Add(new AssetMacro
+                {
+                    Name = name,
+                    Graph = graph ?? EngineMacros.FindSavedGraph(name),
+                    InstanceCount = instances,
+                    FoundIn = foundIn
+                });
+                return;
+            }
+
+            existing.InstanceCount = Math.Max(existing.InstanceCount, instances);
+            existing.Graph ??= graph ?? EngineMacros.FindSavedGraph(name);
+            if (string.IsNullOrEmpty(existing.FoundIn))
+                existing.FoundIn = foundIn;
+        }
+
+        public bool IsLikelyMacroGraphName(string name)
+        {
+            if (name.Contains("EventGraph", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("UserConstructionScript", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("ExecuteUbergraph", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Default__", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("DelegateSignature", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (Functions.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            if (Events.ContainsKey(name))
+                return false;
+
+            return true;
         }
     }
 

@@ -52,6 +52,12 @@ namespace UEBlueprintGraphViewer.ViewModels
         
         [ObservableProperty]
         private List<AssetBPDetailsViewModel> _parentPropertiesFiltered;
+
+        [ObservableProperty]
+        private List<AssetMacroViewModel> _macros;
+
+        [ObservableProperty]
+        private List<AssetMacroViewModel> _macrosFiltered;
         
         [ObservableProperty]
         private string _superStruct;
@@ -106,6 +112,8 @@ namespace UEBlueprintGraphViewer.ViewModels
             PropertiesFiltered = Properties;
             PropertiesFilteredDetails = Properties;
             ParentPropertiesFiltered = ParentProperties;
+            Macros = [.. asset.Macros.Select(o => new AssetMacroViewModel(o))];
+            MacrosFiltered = Macros;
             Flags = asset.GeneratedClass?.Flags ?? EObjectFlags.RF_NoFlags;
             ClassFlags = asset.GeneratedClass?.ClassFlags ?? EClassFlags.CLASS_None;
             ApplyFilter(null);
@@ -133,11 +141,13 @@ namespace UEBlueprintGraphViewer.ViewModels
             Events = [];
             Functions = [];
             Properties = [];
+            Macros = [];
             EventsFiltered = Events;
             FunctionsFiltered = Functions;
             PropertiesFiltered = Properties;
             PropertiesFilteredDetails = Properties;
             ParentPropertiesFiltered = ParentProperties;
+            MacrosFiltered = Macros;
 
             foreach (var e in events)
             {
@@ -186,12 +196,14 @@ namespace UEBlueprintGraphViewer.ViewModels
                 EventsFiltered = Events;
                 FunctionsFiltered = Functions;
                 PropertiesFiltered = Properties;
+                MacrosFiltered = Macros;
                 return;
             }
 
             EventsFiltered = [.. Events.Where(o => o.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase))];
             FunctionsFiltered = [.. Functions.Where(o => o.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase))];
             PropertiesFiltered = [.. Properties.Where(o => o.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
+            MacrosFiltered = [.. Macros.Where(o => o.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
         }
 
         private async void CheckWithDecompiler(Asset asset1, Asset asset2)
@@ -229,6 +241,15 @@ namespace UEBlueprintGraphViewer.ViewModels
                 if (!BPGraph.IsEquals(decompiler1.Graph, decompiler2.Graph))
                     func.ChangeStatus = ChangeStatus.Changed;
             }
+        }
+
+        public void RefreshMacros()
+        {
+            if (Asset == null)
+                return;
+
+            Macros = [.. Asset.Macros.Select(o => new AssetMacroViewModel(o))];
+            ApplyFilter(_filterText);
         }
     }
 
@@ -352,6 +373,46 @@ namespace UEBlueprintGraphViewer.ViewModels
         public override string ToString() => Name;
     }
 
+    public partial class AssetMacroViewModel : ObservableObject
+    {
+        [ObservableProperty]
+        private string _name;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasGraph))]
+        [NotifyPropertyChangedFor(nameof(InputNames))]
+        [NotifyPropertyChangedFor(nameof(OutputNames))]
+        private BPGraph? _graph;
+
+        [ObservableProperty]
+        private int _instanceCount;
+
+        [ObservableProperty]
+        private string? _foundIn;
+
+        [ObservableProperty]
+        private string? _leftoverSource;
+
+        public bool HasGraph => Graph is { Nodes.Count: > 0 };
+
+        public List<string> InputNames =>
+            Graph?.MacroInputNode?.Output.Select(o => o.PinFriendlyName).ToList() ?? [];
+
+        public List<string> OutputNames =>
+            Graph?.MacroOutputNode?.Input.Select(o => o.PinFriendlyName).ToList() ?? [];
+
+        public AssetMacroViewModel(AssetMacro macro)
+        {
+            Name = macro.Name;
+            Graph = macro.Graph;
+            InstanceCount = macro.InstanceCount;
+            FoundIn = macro.FoundIn;
+            LeftoverSource = macro.LeftoverSource;
+        }
+
+        public override string ToString() => Name;
+    }
+    
     public partial class AssetBPDetailsViewModel : ObservableObject
     {
         [ObservableProperty]

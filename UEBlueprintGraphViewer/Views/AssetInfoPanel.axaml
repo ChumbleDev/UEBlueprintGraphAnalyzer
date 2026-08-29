@@ -55,6 +55,8 @@
             <RowDefinition MinHeight="50"/>
             <RowDefinition Height="5"/>
             <RowDefinition MinHeight="50"/>
+            <RowDefinition Height="5"/>
+            <RowDefinition MinHeight="50"/>
         </Grid.RowDefinitions>
 		<TextBox Classes="Search" Grid.Row="0" Margin="5,0,5,5" Text="{Binding FilterText}"/>
         <Grid Grid.Row="1" Grid.RowSpan="2" RowDefinitions="Auto,*">
@@ -115,6 +117,32 @@
 						<MenuItem Header="Find globally"
 						          DataContext="{Binding #PropertyList.SelectedItem}"
 						          Click="PropertySearchGlobal_OnClick"/>
+					</ContextMenu>
+				</ListBox.ContextMenu>
+			</ListBox>
+		</Grid>
+		<GridSplitter Grid.Row="6"/>
+		<Grid Grid.Row="7" RowDefinitions="Auto,*">
+			<TextBlock Text="Macros"
+			           Grid.Row="0"
+			           Classes="HeaderSmall"/>
+			<ListBox x:Name="MacroList"
+			         Grid.Row="1"
+			         SelectionChanged="MacroList_OnSelectionChanged"
+			         ItemsSource="{Binding MacrosFiltered}">
+				<ListBox.ItemTemplate>
+					<DataTemplate x:DataType="vm:AssetMacroViewModel">
+						<TextBlock Text="{Binding Name}"
+						           Padding="5,3"
+						           Background="Transparent"
+						           DoubleTapped="MacroList_DoubleTapped"/>
+					</DataTemplate>
+				</ListBox.ItemTemplate>
+				<ListBox.ContextMenu>
+					<ContextMenu>
+						<MenuItem Header="Find globally"
+						          DataContext="{Binding #MacroList.SelectedItem}"
+						          Click="MacroSearchGlobal_OnClick"/>
 					</ContextMenu>
 				</ListBox.ContextMenu>
 			</ListBox>
