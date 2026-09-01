@@ -58,6 +58,24 @@ namespace UEBlueprintGraphViewer.ViewModels
 
         [ObservableProperty]
         private List<AssetMacroViewModel> _macrosFiltered;
+
+        [ObservableProperty]
+        private List<AssetComponentViewModel> _components = [];
+
+        [ObservableProperty]
+        private List<AssetComponentViewModel> _componentsFiltered = [];
+
+        [ObservableProperty]
+        private bool _isActorBlueprint;
+
+        [ObservableProperty]
+        private bool _isMaterial;
+
+        [ObservableProperty]
+        private string _eventsSectionTitle = "Event Graph";
+
+        [ObservableProperty]
+        private string _functionsSectionTitle = "Functions";
         
         [ObservableProperty]
         private string _superStruct;
@@ -114,6 +132,21 @@ namespace UEBlueprintGraphViewer.ViewModels
             ParentPropertiesFiltered = ParentProperties;
             Macros = [.. asset.Macros.Select(o => new AssetMacroViewModel(o))];
             MacrosFiltered = Macros;
+            IsActorBlueprint = asset.IsActorBlueprint;
+            Components = [.. asset.Components.Select(o => new AssetComponentViewModel(o))];
+            ComponentsFiltered = Components;
+            IsMaterial = asset.IsMaterial;
+            if (asset.IsMaterial)
+            {
+                EventsSectionTitle = "Outputs";
+                FunctionsSectionTitle = "Material Functions";
+                Events = [.. asset.MaterialOutputNames.Select(o => new AssetFunctionViewModel(o))];
+                Functions = [.. asset.ReferencedMaterialFunctions
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Select(o => new AssetFunctionViewModel(o))];
+                EventsFiltered = Events;
+                FunctionsFiltered = Functions;
+            }
             Flags = asset.GeneratedClass?.Flags ?? EObjectFlags.RF_NoFlags;
             ClassFlags = asset.GeneratedClass?.ClassFlags ?? EClassFlags.CLASS_None;
             ApplyFilter(null);
@@ -142,12 +175,15 @@ namespace UEBlueprintGraphViewer.ViewModels
             Functions = [];
             Properties = [];
             Macros = [];
+            Components = [];
             EventsFiltered = Events;
             FunctionsFiltered = Functions;
             PropertiesFiltered = Properties;
             PropertiesFilteredDetails = Properties;
             ParentPropertiesFiltered = ParentProperties;
             MacrosFiltered = Macros;
+            ComponentsFiltered = Components;
+            IsActorBlueprint = false;
 
             foreach (var e in events)
             {
@@ -197,6 +233,7 @@ namespace UEBlueprintGraphViewer.ViewModels
                 FunctionsFiltered = Functions;
                 PropertiesFiltered = Properties;
                 MacrosFiltered = Macros;
+                ComponentsFiltered = Components;
                 return;
             }
 
@@ -204,6 +241,31 @@ namespace UEBlueprintGraphViewer.ViewModels
             FunctionsFiltered = [.. Functions.Where(o => o.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase))];
             PropertiesFiltered = [.. Properties.Where(o => o.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
             MacrosFiltered = [.. Macros.Where(o => o.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))];
+            ComponentsFiltered = FilterComponents(Components, filter);
+        }
+
+        static List<AssetComponentViewModel> FilterComponents(List<AssetComponentViewModel> roots, string filter)
+        {
+            var result = new List<AssetComponentViewModel>();
+            foreach (var root in roots)
+            {
+                if (FilterComponent(root, filter) is { } kept)
+                    result.Add(kept);
+            }
+            return result;
+        }
+
+        static AssetComponentViewModel? FilterComponent(AssetComponentViewModel node, string filter)
+        {
+            var children = node.Children
+                .Select(o => FilterComponent(o, filter))
+                .OfType<AssetComponentViewModel>()
+                .ToList();
+            bool match = node.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                         node.ClassName.Contains(filter, StringComparison.OrdinalIgnoreCase);
+            if (!match && children.Count == 0)
+                return null;
+            return node.WithChildren(children);
         }
 
         private async void CheckWithDecompiler(Asset asset1, Asset asset2)
@@ -286,6 +348,15 @@ namespace UEBlueprintGraphViewer.ViewModels
         private List<AssetPropertyViewModel> _locals;
         
 
+        public AssetFunctionViewModel(string name)
+        {
+            Name = name;
+            Properties = [];
+            Inputs = [];
+            Outputs = [];
+            Locals = [];
+        }
+
         public AssetFunctionViewModel(string? name, UFunction func)
         {
             Function = func;
@@ -337,6 +408,12 @@ namespace UEBlueprintGraphViewer.ViewModels
         
         [ObservableProperty]
         private string _defaultValue;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasChildren))]
+        private List<AssetPropertyViewModel> _children = [];
+
+        public bool HasChildren => Children.Count > 0;
         
         public ChangeStatus ChangeStatus { get; set; }
 
@@ -347,6 +424,28 @@ namespace UEBlueprintGraphViewer.ViewModels
             Type = Property.PinType;
             Flags = Property.Flags;
             DefaultValue = Property.DefaultValue;
+            Children = CreateChildren(prop.ValueChildren, ElementPinType(prop.PinType));
+        }
+
+        AssetPropertyViewModel(PropertyValueNode node, EngineBPData.GraphPinType type)
+        {
+            Name = node.Name;
+            DefaultValue = node.Text;
+            Type = type;
+            Children = CreateChildren(node.Children, type);
+        }
+
+        static List<AssetPropertyViewModel> CreateChildren(List<PropertyValueNode>? nodes, EngineBPData.GraphPinType type)
+        {
+            if (nodes == null || nodes.Count == 0)
+                return [];
+            return [.. nodes.Select(o => new AssetPropertyViewModel(o, type))];
+        }
+
+        static EngineBPData.GraphPinType ElementPinType(EngineBPData.GraphPinType type)
+        {
+            type.ContainerType = EngineEnums.EPinContainerType.None;
+            return type;
         }
 
         public AssetPropertyViewModel(PropertyData? prop1, PropertyData? prop2)
@@ -408,6 +507,63 @@ namespace UEBlueprintGraphViewer.ViewModels
             InstanceCount = macro.InstanceCount;
             FoundIn = macro.FoundIn;
             LeftoverSource = macro.LeftoverSource;
+        }
+
+        public override string ToString() => Name;
+    }
+    
+    public partial class AssetComponentViewModel : ObservableObject
+    {
+        [ObservableProperty]
+        private string _name = "";
+
+        [ObservableProperty]
+        private string _className = "ActorComponent";
+
+        [ObservableProperty]
+        private string? _parentName;
+
+        [ObservableProperty]
+        private bool _isInherited;
+
+        [ObservableProperty]
+        private bool _isSceneComponent;
+
+        [ObservableProperty]
+        private List<AssetComponentViewModel> _children = [];
+
+        [ObservableProperty]
+        private List<AssetPropertyViewModel> _properties = [];
+
+        public string InheritedLabel => IsInherited ? "Inherited" : "This blueprint";
+
+        public AssetComponentViewModel(AssetComponent component)
+        {
+            Name = component.Name;
+            ClassName = component.ClassName;
+            ParentName = component.ParentName;
+            IsInherited = component.IsInherited;
+            IsSceneComponent = component.IsSceneComponent;
+            Children = [.. component.Children.Select(o => new AssetComponentViewModel(o))];
+            Properties = [.. ComponentCollector.ReadAllProperties(component.Template).Select(o => new AssetPropertyViewModel(o))];
+        }
+
+        AssetComponentViewModel()
+        {
+        }
+
+        public AssetComponentViewModel WithChildren(List<AssetComponentViewModel> children)
+        {
+            return new AssetComponentViewModel
+            {
+                Name = Name,
+                ClassName = ClassName,
+                ParentName = ParentName,
+                IsInherited = IsInherited,
+                IsSceneComponent = IsSceneComponent,
+                Children = children,
+                Properties = Properties
+            };
         }
 
         public override string ToString() => Name;

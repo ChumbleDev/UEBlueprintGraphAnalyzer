@@ -31,7 +31,7 @@ namespace UEBlueprintGraphViewer
             Provider.PostMount();
             Provider.LoadVirtualPaths();
             Provider.ReadScriptData = true;
-            Provider.SkipReferencedTextures = true;
+            Provider.SkipReferencedTextures = false;
 
             OodleHelper.Initialize(Path.Combine(Directory.GetCurrentDirectory(), OodleHelper.OodleFileName));
 
@@ -75,7 +75,8 @@ namespace UEBlueprintGraphViewer
         public async Task<Asset> LoadAssetAndCheck(string path, string name)
         {
             Asset asset = await LoadAsset(path, name);
-            if (!asset.IsBP) throw new AssetIsNotBlueprintException();
+            if (!asset.IsBP && !asset.IsMaterial)
+                throw new AssetIsNotBlueprintException();
             return asset;
         }
     }

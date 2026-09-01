@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Media;
 
@@ -12,13 +13,32 @@ namespace UEBlueprintGraphViewer
         [STAThread]
         public static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                if (e.ExceptionObject is Exception ex)
+                    ErrorLog.Record(ex, "AppDomain.UnhandledException");
+            };
+            TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                ErrorLog.Record(e.Exception, "TaskScheduler.UnobservedTaskException");
+                e.SetObserved();
+            };
+
             if (args.Length == 1 && args[0] == "debugger")
             {
                 Settings.DebuggerMode = true;
             }
-            
-            BuildAvaloniaApp()
-                .StartWithClassicDesktopLifetime(args);
+
+            try
+            {
+                BuildAvaloniaApp()
+                    .StartWithClassicDesktopLifetime(args);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Record(ex, "Main");
+                throw;
+            }
         }
 
         // Avalonia configuration, don't remove; also used by visual designer.

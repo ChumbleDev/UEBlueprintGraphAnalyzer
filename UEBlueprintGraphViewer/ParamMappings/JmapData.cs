@@ -185,9 +185,69 @@ public class JmapData
         props = obj!.GetAllProperties();
         return true;
     }
+
+    public bool TryFindPropertiesByPath(string? pathName, out List<PropertyData>? props)
+    {
+        props = [];
+        if (string.IsNullOrEmpty(pathName))
+            return false;
+
+        var obj = ResolveObjectByPath(pathName);
+        if (obj == null)
+            return false;
+
+        props = obj.GetAllProperties();
+        return true;
+    }
+
+    ObjectData? ResolveObjectByPath(string pathName)
+    {
+        if (GetObjectData(pathName) is { } exact)
+            return exact;
+
+        string dotted = pathName.Replace(':', '.');
+        if (dotted != pathName && GetObjectData(dotted) is { } byDot)
+            return byDot;
+
+        string coloned = pathName.Replace('.', ':');
+        if (coloned != pathName && GetObjectData(coloned) is { } byColon)
+            return byColon;
+
+        const string scriptPrefix = "/Script/";
+        if (pathName.StartsWith(scriptPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            string withoutScript = pathName[scriptPrefix.Length..];
+            if (GetObjectData(withoutScript) is { } shortPath)
+                return shortPath;
+        }
+        else if (GetObjectData(scriptPrefix + pathName.TrimStart('/')) is { } withScript)
+        {
+            return withScript;
+        }
+
+        string leaf = pathName.SubstringAfterLast('.').SubstringAfterLast(':');
+        if (string.IsNullOrEmpty(leaf))
+            return null;
+
+        foreach (var kv in _objectsLookup)
+        {
+            if (kv.Key.Equals(leaf, StringComparison.OrdinalIgnoreCase) ||
+                kv.Key.EndsWith("." + leaf, StringComparison.OrdinalIgnoreCase) ||
+                kv.Key.EndsWith(":" + leaf, StringComparison.OrdinalIgnoreCase))
+                return kv.Value;
+        }
+
+        return null;
+    }
     
     private bool TryFindObject(FPackageIndex objIndex, out ObjectData? obj)
     {
+        if (objIndex?.ResolvedObject == null)
+        {
+            obj = null;
+            return false;
+        }
+
         string name = objIndex.ResolvedObject.GetPathName();
         obj = GetObjectData(name);
         return obj != null;

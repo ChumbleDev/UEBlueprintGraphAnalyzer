@@ -19,19 +19,7 @@
 			</Grid>
 		</DataTemplate>
 		<DataTemplate x:DataType="viewModels:AssetPropertyViewModel" x:Key="PropsWithDefaultTemplate">
-			<Grid Background="{StaticResource Background2}" ColumnSpacing="5">
-				<Grid.ColumnDefinitions>
-					<ColumnDefinition Width="Auto"/>
-					<ColumnDefinition Width="*"/>
-					<ColumnDefinition Width="5"/>
-					<ColumnDefinition Width="{Binding #Viewer.((views:BPGraphViewerViewModel)DataContext)?.BlueprintDetailsValueColumnWidth, Mode=TwoWay}"/>
-				</Grid.ColumnDefinitions>
-				<Border Grid.ColumnSpan="4" Background="Transparent" BorderBrush="{StaticResource Background4}" BorderThickness="0,0,0,1"/>
-				<local:PinConnector PinType="{Binding Type}" Width="19" Height="19"/>
-				<TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-				<GridSplitter Grid.Column="2" BorderThickness="0,0,1,0" BorderBrush="{StaticResource Background4}"/>
-				<TextBox Grid.Column="3" Margin="2,4" IsReadOnly="True" Text="{Binding DefaultValue}"/>
-			</Grid>
+			<local:PropertyInspectorRow/>
 		</DataTemplate>
 	</UserControl.Resources>
 	
@@ -39,7 +27,6 @@
         <views:AssetInfoPanel Grid.Column="0"
 		                      x:Name="AssetInfoPanel"
 		                      FunctionChoosen="AssetInfoPanel_FunctionChoosen"
-		                      MacroChoosen="AssetInfoPanel_MacroChoosen"
 		                      DataContext="{Binding Asset}"/>
 		
 		<GridSplitter Grid.Column="1"/>
@@ -128,10 +115,10 @@
 												</Grid>
 											</ScrollViewer>
 										</DataTemplate>
-										<DataTemplate x:DataType="viewModels:AssetMacroViewModel">
+										<DataTemplate x:DataType="viewModels:AssetComponentViewModel">
 											<ScrollViewer HorizontalScrollBarVisibility="Disabled">
-												<Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Background="{StaticResource Background2}">
-													<TextBlock Text="Macro"
+												<Grid RowDefinitions="Auto,Auto,Auto,Auto" Background="{StaticResource Background2}">
+													<TextBlock Text="Component"
 													           Classes="HeaderSmall"/>
 													<StackPanel Margin="10"
 													            Spacing="7"
@@ -141,40 +128,26 @@
 															<Run Text="{Binding Name}"/>
 														</TextBlock>
 														<TextBlock TextWrapping="Wrap">
-															<Run Text="Reconstructed graph:"/>
-															<Run Text="{Binding HasGraph}"/>
+															<Run Text="Class:"/>
+															<Run Text="{Binding ClassName}"/>
 														</TextBlock>
 														<TextBlock TextWrapping="Wrap">
-															<Run Text="Instances found:"/>
-															<Run Text="{Binding InstanceCount}"/>
+															<Run Text="Parent:"/>
+															<Run Text="{Binding ParentName}"/>
 														</TextBlock>
-														<TextBlock TextWrapping="Wrap"
-														           IsVisible="{Binding LeftoverSource, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-															<Run Text="Leftover source:"/>
-															<Run Text="{Binding LeftoverSource}"/>
-														</TextBlock>
-														<TextBlock TextWrapping="Wrap"
-														           IsVisible="{Binding FoundIn, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-															<Run Text="Found in:"/>
-															<Run Text="{Binding FoundIn}"/>
-														</TextBlock>
-														<TextBlock TextWrapping="Wrap"
-														           IsVisible="{Binding !HasGraph}">
-															<Run Text="Cooked macros are inlined into caller blueprints, so this library has no bytecode of its own. Open a blueprint that used the macro, or save a pattern with Collapse to Macro, to reconstruct the graph."/>
+														<TextBlock TextWrapping="Wrap">
+															<Run Text="Source:"/>
+															<Run Text="{Binding InheritedLabel}"/>
 														</TextBlock>
 													</StackPanel>
-													<TextBlock Text="Inputs"
+													<TextBlock Text="Properties"
 													           Grid.Row="2"
 													           Classes="HeaderSmall"
 													           Background="{StaticResource Background3}"/>
-													<ListBox ItemsSource="{Binding InputNames}"
-													         Grid.Row="3"/>
-													<TextBlock Text="Outputs"
-													           Grid.Row="4"
-													           Classes="HeaderSmall"
-													           Background="{StaticResource Background3}"/>
-													<ListBox ItemsSource="{Binding OutputNames}"
-													         Grid.Row="5"/>
+													<ListBox ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+													         ItemsSource="{Binding Properties}"
+													         Grid.Row="3"
+													         ItemTemplate="{StaticResource PropsWithDefaultTemplate}"/>
 												</Grid>
 											</ScrollViewer>
 										</DataTemplate>
@@ -197,6 +170,14 @@
 														<Run Text="Default value:"/>
 														<Run Text="{Binding DefaultValue}"/>
 													</TextBlock>
+													<ItemsControl IsVisible="{Binding HasChildren}"
+													              ItemsSource="{Binding Children}">
+														<ItemsControl.ItemTemplate>
+															<DataTemplate x:DataType="viewModels:AssetPropertyViewModel">
+																<local:PropertyInspectorRow/>
+															</DataTemplate>
+														</ItemsControl.ItemTemplate>
+													</ItemsControl>
 												</StackPanel>
 											</Grid>
 										</DataTemplate>

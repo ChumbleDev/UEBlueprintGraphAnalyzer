@@ -26,6 +26,9 @@
 				</Setter.Value>
 			</Setter>
 		</Style>
+		<Style Selector="TreeViewItem">
+			<Setter Property="IsExpanded" Value="True"/>
+		</Style>
 		<Style Selector="ListBox.Prop">
 			<Setter Property="ItemTemplate">
 				<Setter.Value>
@@ -47,7 +50,7 @@
 			</Setter>
 		</Style>
 	</UserControl.Styles>
-    <Grid Background="{StaticResource Background3}">
+    <Grid x:Name="InfoGrid" Background="{StaticResource Background3}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition MinHeight="50"/>
@@ -60,7 +63,7 @@
         </Grid.RowDefinitions>
 		<TextBox Classes="Search" Grid.Row="0" Margin="5,0,5,5" Text="{Binding FilterText}"/>
         <Grid Grid.Row="1" Grid.RowSpan="2" RowDefinitions="Auto,*">
-	        <TextBlock Text="Event Graph"
+	        <TextBlock Text="{Binding EventsSectionTitle}"
 	                   Grid.Row="0"
 	                   Classes="HeaderSmall"/>
 	        <ListBox x:Name="EventList"
@@ -81,7 +84,7 @@
         </Grid>
         <GridSplitter Grid.Row="2"/>
         <Grid Grid.Row="3" RowDefinitions="Auto,*">
-	        <TextBlock Text="Functions"
+	        <TextBlock Text="{Binding FunctionsSectionTitle}"
 	                   Grid.Row="0"
 	                   Classes="HeaderSmall"/>
 	        <ListBox x:Name="FunctionList"
@@ -121,31 +124,28 @@
 				</ListBox.ContextMenu>
 			</ListBox>
 		</Grid>
-		<GridSplitter Grid.Row="6"/>
-		<Grid Grid.Row="7" RowDefinitions="Auto,*">
-			<TextBlock Text="Macros"
+		<GridSplitter x:Name="ComponentsSplitter" Grid.Row="6"/>
+		<Grid x:Name="ComponentsSection" Grid.Row="7" RowDefinitions="Auto,*">
+			<TextBlock Text="Components"
 			           Grid.Row="0"
 			           Classes="HeaderSmall"/>
-			<ListBox x:Name="MacroList"
-			         Grid.Row="1"
-			         SelectionChanged="MacroList_OnSelectionChanged"
-			         ItemsSource="{Binding MacrosFiltered}">
-				<ListBox.ItemTemplate>
-					<DataTemplate x:DataType="vm:AssetMacroViewModel">
-						<TextBlock Text="{Binding Name}"
-						           Padding="5,3"
-						           Background="Transparent"
-						           DoubleTapped="MacroList_DoubleTapped"/>
-					</DataTemplate>
-				</ListBox.ItemTemplate>
-				<ListBox.ContextMenu>
-					<ContextMenu>
-						<MenuItem Header="Find globally"
-						          DataContext="{Binding #MacroList.SelectedItem}"
-						          Click="MacroSearchGlobal_OnClick"/>
-					</ContextMenu>
-				</ListBox.ContextMenu>
-			</ListBox>
+			<TreeView x:Name="ComponentTree"
+			          Grid.Row="1"
+			          ItemsSource="{Binding ComponentsFiltered}"
+			          SelectionChanged="ComponentTree_OnSelectionChanged">
+				<TreeView.ItemTemplate>
+					<TreeDataTemplate x:DataType="vm:AssetComponentViewModel"
+					                  ItemsSource="{Binding Children}">
+						<StackPanel Orientation="Horizontal" Spacing="6" Margin="2,1">
+							<TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+							<TextBlock Text="{Binding ClassName}"
+							           Opacity="0.5"
+							           FontSize="11"
+							           VerticalAlignment="Center"/>
+						</StackPanel>
+					</TreeDataTemplate>
+				</TreeView.ItemTemplate>
+			</TreeView>
 		</Grid>
     </Grid>
 </UserControl>

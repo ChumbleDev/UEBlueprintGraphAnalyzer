@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:UEBlueprintGraphViewer"
+             xmlns:vm="clr-namespace:UEBlueprintGraphViewer.ViewModels"
+             x:Class="UEBlueprintGraphViewer.PropertyInspectorRow"
+             x:DataType="vm:AssetPropertyViewModel">
+	<UserControl.Styles>
+		<Style Selector="Expander">
+			<Setter Property="HorizontalAlignment" Value="Stretch"/>
+			<Setter Property="Padding" Value="0"/>
+			<Setter Property="Background" Value="Transparent"/>
+		</Style>
+	</UserControl.Styles>
+	<Grid>
+		<Border Background="Transparent"
+		        BorderBrush="{StaticResource Background4}"
+		        BorderThickness="0,0,0,1"/>
+
+		<Grid IsVisible="{Binding !HasChildren}"
+		      ColumnDefinitions="Auto,*,5,*"
+		      ColumnSpacing="5">
+			<local:PinConnector PinType="{Binding Type}" Width="19" Height="19" VerticalAlignment="Center"/>
+			<TextBlock Grid.Column="1"
+			           Text="{Binding Name}"
+			           TextTrimming="CharacterEllipsis"
+			           VerticalAlignment="Center"/>
+			<TextBox Grid.Column="3"
+			         Margin="2,4"
+			         IsReadOnly="True"
+			         Text="{Binding DefaultValue}"/>
+		</Grid>
+
+		<Expander IsVisible="{Binding HasChildren}"
+		          IsExpanded="False"
+		          HorizontalAlignment="Stretch">
+			<Expander.Header>
+				<Grid ColumnDefinitions="Auto,*,8,*" ColumnSpacing="5" MinWidth="160">
+					<local:PinConnector PinType="{Binding Type}" Width="19" Height="19" VerticalAlignment="Center"/>
+					<TextBlock Grid.Column="1"
+					           Text="{Binding Name}"
+					           TextTrimming="CharacterEllipsis"
+					           VerticalAlignment="Center"/>
+					<TextBlock Grid.Column="3"
+					           Text="{Binding DefaultValue}"
+					           TextTrimming="CharacterEllipsis"
+					           VerticalAlignment="Center"
+					           Opacity="0.85"/>
+				</Grid>
+			</Expander.Header>
+			<ItemsControl Margin="18,0,0,0" ItemsSource="{Binding Children}">
+				<ItemsControl.ItemTemplate>
+					<DataTemplate x:DataType="vm:AssetPropertyViewModel">
+						<local:PropertyInspectorRow/>
+					</DataTemplate>
+				</ItemsControl.ItemTemplate>
+			</ItemsControl>
+		</Expander>
+	</Grid>
+</UserControl>

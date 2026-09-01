@@ -15,7 +15,6 @@ namespace UEBlueprintGraphViewer.Views
     public partial class AssetInfoPanel : UserControl
     {
         public event EventHandler<AssetFunctionViewModel>? FunctionChoosen;
-        public event EventHandler<AssetMacroViewModel>? MacroChoosen;
         
         public EventHandler<string>? OnPropertySearchInCurrentGraph;
         public EventHandler<string>? OnFunctionSearchInCurrentGraph;
@@ -23,11 +22,11 @@ namespace UEBlueprintGraphViewer.Views
         public EventHandler<object>? OnObjectSelected;
 
         private AssetFunctionViewModel? lastSelected;
-        private AssetMacroViewModel? lastSelectedMacro;
 
         public AssetInfoPanel()
         {
             InitializeComponent();
+            DataContextChanged += (_, _) => UpdateComponentsVisibility();
         }
 
         private void FunctionList_DoubleTapped(object sender, TappedEventArgs e)
@@ -56,21 +55,33 @@ namespace UEBlueprintGraphViewer.Views
         public void SelectFunction(AssetFunctionViewModel func)
         {
             lastSelected = func;
-            lastSelectedMacro = null!;
             if (EventList.ItemsSource?.Cast<AssetFunctionViewModel>().Contains(func) == true)
                 EventList.SelectedItem = func;
             else
                 FunctionList.SelectedItem = func;
-            MacroList.SelectedIndex = -1;
+            PropertyList.SelectedIndex = -1;
+            ClearComponentSelection();
         }
 
-        public void SelectMacro(AssetMacroViewModel macro)
+        void UpdateComponentsVisibility()
         {
-            lastSelectedMacro = macro;
-            MacroList.SelectedItem = macro;
-            EventList.SelectedIndex = -1;
-            FunctionList.SelectedIndex = -1;
-            PropertyList.SelectedIndex = -1;
+            bool show = DataContext is AssetViewModel { IsActorBlueprint: true };
+            ComponentsSplitter.IsVisible = show;
+            ComponentsSection.IsVisible = show;
+            if (InfoGrid.RowDefinitions.Count < 8)
+                return;
+
+            InfoGrid.RowDefinitions[6].MinHeight = 0;
+            InfoGrid.RowDefinitions[7].MinHeight = 0;
+            InfoGrid.RowDefinitions[6].Height = show ? new GridLength(5) : new GridLength(0);
+            InfoGrid.RowDefinitions[7].Height = show ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            if (show)
+                InfoGrid.RowDefinitions[7].MinHeight = 50;
+        }
+
+        void ClearComponentSelection()
+        {
+            ComponentTree.SelectedItem = null;
         }
         
         private void PropertySearchInCurrentGraph_OnClick(object? sender, RoutedEventArgs e)
@@ -158,7 +169,7 @@ namespace UEBlueprintGraphViewer.Views
                 OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
                 FunctionList.SelectedIndex = -1;
                 PropertyList.SelectedIndex = -1;
-                MacroList.SelectedIndex = -1;
+                ClearComponentSelection();
             }
         }
 
@@ -169,7 +180,7 @@ namespace UEBlueprintGraphViewer.Views
                 OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
                 EventList.SelectedIndex = -1;
                 PropertyList.SelectedIndex = -1;
-                MacroList.SelectedIndex = -1;
+                ClearComponentSelection();
             }
         }
 
@@ -180,57 +191,18 @@ namespace UEBlueprintGraphViewer.Views
                 OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
                 EventList.SelectedIndex = -1;
                 FunctionList.SelectedIndex = -1;
-                MacroList.SelectedIndex = -1;
+                ClearComponentSelection();
             }
         }
 
-        private void MacroList_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
+        private void ComponentTree_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
-            if (e.AddedItems.Count > 0)
+            if (e.AddedItems.Count > 0 && e.AddedItems[0] is AssetComponentViewModel component)
             {
-                OnObjectSelected?.Invoke(sender, e.AddedItems[0]);
+                OnObjectSelected?.Invoke(sender, component);
                 EventList.SelectedIndex = -1;
                 FunctionList.SelectedIndex = -1;
                 PropertyList.SelectedIndex = -1;
-            }
-        }
-
-        private void MacroList_DoubleTapped(object sender, TappedEventArgs e)
-        {
-            if (sender is Visual { DataContext: AssetMacroViewModel macro })
-            {
-                lastSelectedMacro = macro;
-                MacroChoosen?.Invoke(this, lastSelectedMacro);
-            }
-        }
-
-        private async void MacroSearchGlobal_OnClick(object? sender, RoutedEventArgs e)
-        {
-            if (Settings.Instance.IsInCompareMode)
-            {
-                await DialogWindow.Show("Finding assets references is not available in compare mode", "Search");
-                return;
-            }
-
-            if (sender is Visual { DataContext: AssetMacroViewModel macro } && DataContext is AssetViewModel { Asset: { } currentAsset })
-            {
-                var dialog = new ProgressWindow("Search", "Finding macro instances:");
-                dialog.Open(MainWindow.Instance);
-                var result = await ReferencesSearcher.FindMacroInstances(MainWindow.Package!, Settings.Instance.Game, currentAsset, macro.Name, dialog.Update);
-                MainWindow.Instance.AddTab(new()
-                {
-                    Header = $"References of {currentAsset.ObjectName}:{macro.Name}",
-                    Classes = { "Closeable" },
-                    Content = new AssetReferencesResultView($"Found {result.Length} instances of {currentAsset.ObjectName}:{macro.Name}",
-                        result.Select(o => new ReferenceResult()
-                        {
-                            File = new AssetFile(o.Item1.Name, o.Item1.Path),
-                            Function = o.Item2,
-                            NodeStatementIndex = o.Item3
-                        }).ToList())
-                });
-
-                dialog.Close();
             }
         }
     }

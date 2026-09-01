@@ -79,6 +79,11 @@ namespace UEBlueprintGraphViewer.Views
             { "SwitchEnum", FromColor(new SKColor(149, 149, 16)) },
             { "Timeline", FromColor(new SKColor(149, 149, 16)) },
             { "MakeStruct", FromColor(new SKColor(20, 50, 130)) },
+            { "MaterialExpression", FromColor(new SKColor(102, 136, 97)) },
+            { "MaterialParameter", FromColor(new SKColor(84, 129, 159)) },
+            { "MaterialFunctionCall", FromColor(new SKColor(130, 130, 130)) },
+            { "MaterialFunctionPort", FromColor(new SKColor(134, 39, 159)) },
+            { "MaterialResult", FromColor(new SKColor(134, 39, 159)) },
         }.ToFrozenDictionary();
 
         public static SKPaint SKUnknownColor = FromColor(SKColors.Red);

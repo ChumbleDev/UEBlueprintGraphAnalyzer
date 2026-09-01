@@ -32,6 +32,9 @@ namespace UEBlueprintGraphViewer
         public string MacroName;
 
         internal readonly List<List<BPNode>> LikelyMacroRegions = [];
+        public bool IsMaterialGraph;
+        public bool IsDataFlowGraph;
+        public bool UseSavedPositions;
         
         public delegate void UpdateProgressDelegate(int count, int countMax);
 
@@ -81,6 +84,12 @@ namespace UEBlueprintGraphViewer
             if (Clusters.Count > 0)
                 return;
 
+            if (IsDataFlowGraph)
+            {
+                FindDataFlowClusters();
+                return;
+            }
+
             List<BPNode> Starts = Nodes.FindAll(o => o is K2Node_Event or K2Node_FunctionEntry);
             List<BPNode> ParsedNodes = [];
 
@@ -119,6 +128,48 @@ namespace UEBlueprintGraphViewer
                         }
                     }
                 }
+            }
+        }
+
+        void FindDataFlowClusters()
+        {
+            if (IsMaterialGraph)
+            {
+                var cluster = Nodes.Where(o => o is not K2Node_Comment).ToList();
+                if (cluster.Count > 0)
+                    Clusters.Add(cluster);
+                return;
+            }
+
+            var parsed = new HashSet<BPNode>();
+            foreach (var start in Nodes)
+            {
+                if (start is K2Node_Comment || !parsed.Add(start))
+                    continue;
+
+                var cluster = new List<BPNode>();
+                var queue = new Queue<BPNode>();
+                queue.Enqueue(start);
+                while (queue.Count > 0)
+                {
+                    var node = queue.Dequeue();
+                    if (node is K2Node_Comment)
+                        continue;
+                    cluster.Add(node);
+                    foreach (var pin in node.Input.Concat(node.Output))
+                    {
+                        foreach (var linked in pin.LinkedTo)
+                        {
+                            var other = linked.ParentNode;
+                            if (other == null || other is K2Node_Comment || !parsed.Add(other))
+                                continue;
+                            queue.Enqueue(other);
+                        }
+                    }
+                }
+
+                if (cluster.Count > 0)
+                    Clusters.Add(cluster);
             }
         }
         
@@ -372,11 +423,19 @@ namespace UEBlueprintGraphViewer
         // Layout graph using MSAGL
         public void LayoutNodesMsagl(UpdateProgressDelegate? UpdateProgress)
         {
+            foreach (BPNode node in Nodes)
+                node.CalculateSize();
+
+            if (UseSavedPositions)
+            {
+                PlaceLikelyComments();
+                return;
+            }
+
             FindClusters();
             
-            // HACK: remove all nodes without a cluster
-            // TODO: figure out a way to not generate them
-            Nodes = Clusters.SelectMany(o => o).ToList();
+            if (Clusters.Count > 0)
+                Nodes = Clusters.SelectMany(o => o).ToList();
             
             foreach (BPNode node in Nodes)
             {
@@ -386,8 +445,9 @@ namespace UEBlueprintGraphViewer
 
             if (Nodes.Count == 0)
                 return;
-            
-            if (Settings.Instance.IsMSAGL)
+
+            bool useMsagl = Settings.Instance.IsMSAGL || IsDataFlowGraph;
+            if (useMsagl)
             {
                 SugiyamaLayoutSettings settings = MakeMSAGLSettings();
                 
@@ -551,7 +611,15 @@ namespace UEBlueprintGraphViewer
                 //GraphDebugDrawing.DrawGraph(graphs);
             }
 
-            LikelyMacroAnnotator.PlaceComments(this);
+            PlaceLikelyComments();
+        }
+
+        void PlaceLikelyComments()
+        {
+            string title = IsMaterialGraph
+                ? K2Node_Comment.LikelyMaterialFunctionTitle
+                : K2Node_Comment.LikelyMacroTitle;
+            LikelyMacroAnnotator.PlaceComments(this, title);
         }
 
         private static SugiyamaLayoutSettings MakeMSAGLSettings()

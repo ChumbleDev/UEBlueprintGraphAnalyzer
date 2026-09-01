@@ -32,7 +32,7 @@ namespace UEBlueprintGraphViewer
             }
         }
 
-        public static void PlaceComments(BPGraph graph)
+        public static void PlaceComments(BPGraph graph, string? title = null)
         {
             graph.Nodes.RemoveAll(o => o is K2Node_Comment);
 
@@ -42,7 +42,7 @@ namespace UEBlueprintGraphViewer
                 if (members.Count < MinRegionNodes)
                     continue;
 
-                graph.AddNode(new K2Node_Comment(members));
+                graph.AddNode(new K2Node_Comment(members, title));
             }
         }
 

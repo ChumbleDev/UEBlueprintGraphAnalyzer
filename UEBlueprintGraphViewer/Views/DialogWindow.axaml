@@ -11,10 +11,14 @@
         x:DataType="l:DialogWindow"
         Title="DialogWindow">
 	<Grid RowDefinitions="*,*,Auto">
-		<SelectableTextBlock Text="{Binding MessageText}"
-				   TextWrapping="Wrap"
-				   Grid.Row="0"
-				   Margin="10"/>
+		<ScrollViewer Grid.Row="0"
+		              Margin="10"
+		              MaxHeight="420"
+		              HorizontalScrollBarVisibility="Auto"
+		              VerticalScrollBarVisibility="Auto">
+			<SelectableTextBlock Text="{Binding MessageText}"
+			                     TextWrapping="Wrap"/>
+		</ScrollViewer>
 		<TextBox Text="{Binding EnteredText}"
 				 IsVisible="{Binding AskForText}"
 				 x:Name="ValueTextBox"

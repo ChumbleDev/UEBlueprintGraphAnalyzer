@@ -275,8 +275,11 @@ public class GraphView2 : ContentControl
         if (Editor == null)
             return;
 
-        if (Editor.Graph != null)
-            LikelyMacroAnnotator.Dismiss(Editor.Graph, comment);
+            if (Editor.Graph != null)
+            {
+                LikelyMacroAnnotator.Dismiss(Editor.Graph, comment);
+                LikelyMaterialFunctionAnnotator.Dismiss(Editor.Graph, comment);
+            }
 
         Editor.Nodes.Remove(comment);
         Editor.SelectedNodes.Remove(comment);
@@ -506,6 +509,13 @@ public class GraphView2 : ContentControl
             }
         }
 
+        static string HeaderColorKey(BPNode node)
+        {
+            if (node.NodeType.StartsWith("K2Node_", StringComparison.Ordinal) && node.NodeType.Length > 7)
+                return node.NodeType[7..];
+            return node.NodeType;
+        }
+
         private void RenderPinSelection(GraphPin pin, SKCanvas canvas)
         {
             float width = 35;
@@ -668,7 +678,7 @@ public class GraphView2 : ContentControl
             if (!node.HeaderHidden)
             {
                 SKRect nodeHeaderRect = new SKRect(0, 0, node.NodeWidth, 25);
-                SKPaint headerPaint = ViewData.GetNodeHeaderColorSK(node.NodeType[7..], node.Pure);
+                SKPaint headerPaint = ViewData.GetNodeHeaderColorSK(HeaderColorKey(node), node.Pure);
                 headerPaint.Color = headerPaint.Color.WithAlpha(NodeBodyAlpha);
                 if (view.Scaling > 0.2)
                 {

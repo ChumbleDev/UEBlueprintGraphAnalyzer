@@ -56,6 +56,8 @@ namespace UEBlueprintGraphViewer.Views
         private void OnObjectSelected(object? sender, object e)
         {
             VM.SelectedObject = e;
+            if (e is AssetComponentViewModel)
+                DetailsTabControl.SelectedIndex = 0;
         }
 
         private void OnPropertySearchInCurrentGraph(object? sender, string e)
@@ -91,15 +93,15 @@ namespace UEBlueprintGraphViewer.Views
             _autoOpened = true;
 
             var target = VM.Asset.Events.FirstOrDefault() ?? VM.Asset.Functions.FirstOrDefault();
+            if (VM.Asset.IsMaterial)
+            {
+                await OpenMaterialGraph();
+                return;
+            }
             if (target != null)
             {
                 AssetInfoPanel.SelectFunction(target);
                 await OpenFunction(target);
-            }
-            else if (VM.Asset.Macros.FirstOrDefault() is { } macro)
-            {
-                AssetInfoPanel.SelectMacro(macro);
-                await OpenMacro(macro);
             }
         }
 
@@ -139,6 +141,16 @@ namespace UEBlueprintGraphViewer.Views
             view.Autopanner.PanToCentered(new Point(functionStart?.X ?? 0, functionStart?.Y ?? 0));
         }
 
+        void RepositionViewportToGraph(GraphView2 view, BPGraph graph)
+        {
+            var nodes = graph.Nodes.Where(o => o is not K2Node_Comment).ToList();
+            if (nodes.Count == 0)
+                return;
+            double x = nodes.Average(o => o.X + o.NodeWidth / 2.0);
+            double y = nodes.Average(o => o.Y + o.NodeHeight / 2.0);
+            view.Autopanner.PanToCentered(new Point(x, y));
+        }
+
         public void RepositionViewport(int statementIndex)
         {
             var n = _graph.Nodes.FirstOrDefault(o => o.StatementIndex == statementIndex);
@@ -147,33 +159,56 @@ namespace UEBlueprintGraphViewer.Views
 
         public async void AssetInfoPanel_FunctionChoosen(object sender, AssetFunctionViewModel func)
         {
+            if (VM.Asset.IsMaterial)
+            {
+                FocusMaterialName(func.Name);
+                return;
+            }
             await OpenFunction(func);
         }
 
-        public async void AssetInfoPanel_MacroChoosen(object sender, AssetMacroViewModel macro)
+        void FocusMaterialName(string name)
         {
-            await OpenMacro(macro);
+            if (_graph == null)
+                return;
+
+            BPNode? node = _graph.Nodes.FirstOrDefault(o =>
+                               o is MaterialFunctionCallNode or MaterialExpressionNode &&
+                               o.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                           ?? _graph.Nodes.OfType<MaterialResultNode>().FirstOrDefault(o =>
+                               o.Input.Any(p => p.PinFriendlyName.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                                                p.PinName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                           ?? _graph.Nodes.FirstOrDefault(o => o.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                           ?? _graph.Nodes.FirstOrDefault(o => o.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+            GraphViewModel.IsSearchExact = false;
+            GraphViewModel.SearchTerm = "";
+            GraphViewModel.IsSearchVisible = false;
+            RepositionViewport(FirstViewer, node ?? _graph.Nodes.OfType<MaterialResultNode>().FirstOrDefault());
         }
 
-        public Task OpenMacro(AssetMacroViewModel macro)
+        async Task OpenMaterialGraph()
         {
-            VM.CurrentFunction = null;
-            VM.CurrentMacro = macro;
-            _lastFunc = null;
-
             Clear();
-            _graph = macro.Graph ?? new();
-            _graph2 = new();
-            Json = "{}";
-
-            FirstViewer.Editor = GraphViewModel;
-            SecondViewer.Editor = GraphViewModel2;
-            AddNodesToLoad(_graph, _graph2);
-            InstructionsViewer.SetBytecode(Json);
-            DisableProgress();
-
-            RepositionViewport(FirstViewer, _graph.MacroInputNode ?? _graph.Nodes.FirstOrDefault());
-            return Task.CompletedTask;
+            SetProgressStateName("Building material graph...");
+            try
+            {
+                _graph = VM.Asset.Asset?.MaterialGraph ?? new BPGraph { IsMaterialGraph = true, IsDataFlowGraph = true };
+                _graph2 = new();
+                await _graph.LayoutNodesMsaglAsync(UpdateProgress);
+                FirstViewer.Editor = GraphViewModel;
+                SecondViewer.Editor = GraphViewModel2;
+                AddNodesToLoad(_graph, _graph2);
+                RepositionViewportToGraph(FirstViewer, _graph);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Record(ex, "OpenMaterialGraph");
+                await DialogWindow.Show(ErrorLog.DialogText(ex, "OpenMaterialGraph"), "Failed to open material");
+            }
+            finally
+            {
+                DisableProgress();
+            }
         }
 
         public async Task OpenFunction(AssetFunctionViewModel func)
@@ -507,8 +542,5 @@ namespace UEBlueprintGraphViewer.Views
         
         [ObservableProperty]
         private AssetFunctionViewModel? _currentFunction;
-
-        [ObservableProperty]
-        private AssetMacroViewModel? _currentMacro;
     }
 }

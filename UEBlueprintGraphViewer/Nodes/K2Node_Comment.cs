@@ -7,6 +7,7 @@ namespace UEBlueprintGraphViewer.Nodes
     public class K2Node_Comment : BPNode
     {
         public const string LikelyMacroTitle = "Likely a macro.";
+        public const string LikelyMaterialFunctionTitle = "Likely a material function.";
 
         const float PadX = 28f;
         const float PadY = 18f;
@@ -16,7 +17,7 @@ namespace UEBlueprintGraphViewer.Nodes
 
         public List<BPNode> Members { get; }
 
-        public K2Node_Comment(IEnumerable<BPNode> members) : base(LikelyMacroTitle, null)
+        public K2Node_Comment(IEnumerable<BPNode> members, string? title = null) : base(title ?? LikelyMacroTitle, null)
         {
             HeaderHidden = true;
             Members = [.. members];

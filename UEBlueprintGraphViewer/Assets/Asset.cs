@@ -6,9 +6,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Assets.Exports.Material;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.Utils;
 using UEBlueprintGraphViewer.Engine;
+using UEBlueprintGraphViewer.Nodes;
 using static UEBlueprintGraphViewer.Engine.EngineBPData;
 using static UEBlueprintGraphViewer.Engine.EngineEnums;
 using static UEBlueprintGraphViewer.Engine.Utils;
@@ -35,11 +37,23 @@ namespace UEBlueprintGraphViewer.Assets
         public readonly List<InputEventData> InputEvents = [];
         public readonly List<TimelineData> Timelines = [];
         public readonly List<AssetMacro> Macros = [];
+        public readonly List<AssetComponent> Components = [];
+        public bool IsActorBlueprint;
+
+        public bool IsMaterial;
+        public MaterialAssetKind MaterialKind;
+        public UObject? MaterialObject;
+        public readonly List<UObject> MaterialExpressions = [];
+        public readonly List<string> MaterialOutputNames = [];
+        public readonly List<string> ReferencedMaterialFunctions = [];
+        public readonly List<MaterialFunctionRef> MaterialFunctionRefs = [];
+        public MaterialSnapshot? MaterialSnapshot;
+        public BPGraph? MaterialGraph;
 
         public EBlueprintType BlueprintType = EBlueprintType.Normal;
         public bool IsMacroLibrary => BlueprintType == EBlueprintType.MacroLibrary;
         
-        public readonly string SuperStruct;
+        public string SuperStruct = "None";
         
         public Asset(IPackage package, string name)
         {
@@ -53,15 +67,20 @@ namespace UEBlueprintGraphViewer.Assets
             if (index < 0)
                 index = GetBPClassIndex(package);
             
-            if (index < 0 || package.ExportsLazy[index].Value is not UBlueprintGeneratedClass BPClass)
+            if (index >= 0 && package.ExportsLazy[index].Value is UBlueprintGeneratedClass BPClass)
+            {
+                IsBP = true;
+                GeneratedClass = BPClass;
+                ClassDefaultObject = GeneratedClass.ClassDefaultObject.Load<UObject>();
+                SuperStruct = GeneratedClass.SuperStruct.ResolvedObject?.GetPathName() ?? "None";
+                ProcessBPClass();
+                CollectMacroData(package, name);
+                CollectComponents(package);
                 return;
-        
-            IsBP = true;
-            GeneratedClass = BPClass;
-            ClassDefaultObject = GeneratedClass.ClassDefaultObject.Load<UObject>();
-            SuperStruct = GeneratedClass.SuperStruct.ResolvedObject?.GetPathName() ?? "None";
-            ProcessBPClass();
-            CollectMacroData(package, name);
+            }
+
+            SuperStruct = "None";
+            TryLoadMaterial(package, name);
         }
 
         public bool IsEvent(UFunction? func) => _events.Contains(func);
@@ -324,8 +343,40 @@ namespace UEBlueprintGraphViewer.Assets
             
         }
 
-        // Cooked macro libraries (and local macros on normal BPs) have no Kismet bytecode.
-        // Names and leftover editor graphs may still survive on the UBlueprint / UEdGraph exports.
+        void CollectComponents(IPackage package)
+        {
+            try
+            {
+                IsActorBlueprint = ComponentCollector.IsActorOrDerived(GeneratedClass);
+                if (!IsActorBlueprint)
+                    return;
+                Components.AddRange(ComponentCollector.Collect(this, package));
+            }
+            catch
+            {
+                // cooked component data is optional
+            }
+        }
+
+        void TryLoadMaterial(IPackage package, string name)
+        {
+            try
+            {
+                if (!MaterialCollector.TryCollect(this, package, name))
+                    return;
+                SuperStruct = MaterialObject is UMaterialInstance inst
+                    ? inst.Parent?.GetPathName() ?? "Material Instance"
+                    : MaterialKind == MaterialAssetKind.MaterialFunction
+                        ? "Material Function"
+                        : "Material";
+                MaterialGraph = MaterialGraphBuilder.Build(this);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Record(ex, $"TryLoadMaterial({name})");
+            }
+        }
+
         private void CollectMacroData(IPackage package, string assetName)
         {
             try
@@ -405,6 +456,6 @@ namespace UEBlueprintGraphViewer.Assets
 
     public class AssetIsNotBlueprintException : Exception
     {
-        public AssetIsNotBlueprintException() : base("Asset is not blueprint") { }
+        public AssetIsNotBlueprintException() : base("Asset is not a blueprint or material") { }
     }
 }
