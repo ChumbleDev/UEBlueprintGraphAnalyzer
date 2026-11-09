@@ -33,6 +33,7 @@ namespace UEBlueprintGraphViewer
 
         internal readonly List<List<BPNode>> LikelyMacroRegions = [];
         public bool IsMaterialGraph;
+        public bool IsAnimGraph;
         public bool IsDataFlowGraph;
         public bool UseSavedPositions;
         
@@ -133,7 +134,7 @@ namespace UEBlueprintGraphViewer
 
         void FindDataFlowClusters()
         {
-            if (IsMaterialGraph)
+            if (IsMaterialGraph || IsAnimGraph)
             {
                 var cluster = Nodes.Where(o => o is not K2Node_Comment).ToList();
                 if (cluster.Count > 0)

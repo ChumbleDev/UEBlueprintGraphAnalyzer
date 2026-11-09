@@ -50,6 +50,11 @@ namespace UEBlueprintGraphViewer.Assets
         public MaterialSnapshot? MaterialSnapshot;
         public BPGraph? MaterialGraph;
 
+        public bool IsAnimBlueprint;
+        public AnimGraphSnapshot? AnimSnapshot;
+        public readonly Dictionary<string, BPGraph> AnimGraphs = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> AnimGraphNames => [.. AnimGraphs.Keys];
+
         public EBlueprintType BlueprintType = EBlueprintType.Normal;
         public bool IsMacroLibrary => BlueprintType == EBlueprintType.MacroLibrary;
         
@@ -76,6 +81,7 @@ namespace UEBlueprintGraphViewer.Assets
                 ProcessBPClass();
                 CollectMacroData(package, name);
                 CollectComponents(package);
+                CollectAnimBlueprint(package);
                 return;
             }
 
@@ -303,8 +309,11 @@ namespace UEBlueprintGraphViewer.Assets
         public void LoadAllProperties()
         {
             if (GeneratedClass == null) return;
-            foreach (var prop in GeneratedClass.ChildProperties.OfType<FProperty>().Select(o => new PropertyData(o, GeneratedClass)))
+            foreach (var fp in GeneratedClass.ChildProperties.OfType<FProperty>())
             {
+                if (IsAnimBlueprint && AnimBlueprintCollector.IsAnimGraphProperty(fp))
+                    continue;
+                var prop = new PropertyData(fp, GeneratedClass);
                 if (ClassDefaultObject != null)
                     prop.SetPropertyDefaults(ClassDefaultObject);
                 LoadedProperties.Add(prop.Name, prop);
@@ -333,14 +342,29 @@ namespace UEBlueprintGraphViewer.Assets
                 
                 currentPackageIndex = superStruct.SuperStruct;
                 
-                foreach (var prop in superStruct.ChildProperties.OfType<FProperty>().Select(o => new PropertyData(o, superStruct)))
+                foreach (var fp in superStruct.ChildProperties.OfType<FProperty>())
                 {
+                    if (IsAnimBlueprint && AnimBlueprintCollector.IsAnimGraphProperty(fp))
+                        continue;
+                    var prop = new PropertyData(fp, superStruct);
                     if (ClassDefaultObject != null)
                         prop.SetPropertyDefaults(ClassDefaultObject);
                     ParentProperties.Add(prop);
                 }
             }
             
+        }
+
+        void CollectAnimBlueprint(IPackage package)
+        {
+            try
+            {
+                AnimBlueprintCollector.Collect(this, package);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Record(ex, $"CollectAnimBlueprint({Name})");
+            }
         }
 
         void CollectComponents(IPackage package)

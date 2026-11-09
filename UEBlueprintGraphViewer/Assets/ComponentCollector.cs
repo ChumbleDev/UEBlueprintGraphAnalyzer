@@ -20,14 +20,18 @@ namespace UEBlueprintGraphViewer.Assets
     {
         public static bool IsActorOrDerived(UClass? cls)
         {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             while (cls != null)
             {
-                if (cls.Name is "Actor" or "AActor")
+                if (!seen.Add(TryClassPath(cls)))
+                    break;
+
+                if (IsActorClassName(cls.Name) || IsActorClassPath(TryClassPath(cls)))
                     return true;
 
-                string path = cls.GetPathName();
-                if (path.EndsWith(".Actor", StringComparison.Ordinal) ||
-                    path.EndsWith("/Script/Engine.Actor", StringComparison.OrdinalIgnoreCase))
+                string? superName = cls.SuperStruct?.Name;
+                string? superPath = SuperPath(cls.SuperStruct);
+                if (IsActorClassName(superName) || IsActorClassPath(superPath))
                     return true;
 
                 if (!TryLoadSuper(cls, out var next))
@@ -59,6 +63,7 @@ namespace UEBlueprintGraphViewer.Assets
                     break;
             }
 
+            AddNativeParentComponents(asset.GeneratedClass, byName);
             return BuildTree(byName.Values.ToList());
         }
 
@@ -261,6 +266,106 @@ namespace UEBlueprintGraphViewer.Assets
         }
 
         static bool IsEmptyName(string? name) => string.IsNullOrWhiteSpace(name) || name == "None";
+
+        static bool IsActorClassName(string? name)
+        {
+            name = ActorTypeName(name);
+            if (string.IsNullOrEmpty(name))
+                return false;
+            return name is "Actor" or "Pawn" or "Character" or "DefaultPawn" or "SpectatorPawn"
+                or "PaperCharacter" or "Controller" or "PlayerController" or "AIController"
+                or "WheeledVehicle" or "WheeledVehiclePawn"
+                || name.EndsWith("Character", StringComparison.Ordinal)
+                || name.EndsWith("Pawn", StringComparison.Ordinal);
+        }
+
+        static bool IsActorClassPath(string? path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+            return IsActorClassName(path.SubstringAfterLast('.')) ||
+                   path.EndsWith("/Script/Engine.Actor", StringComparison.OrdinalIgnoreCase) ||
+                   path.EndsWith("/Script/Engine.Pawn", StringComparison.OrdinalIgnoreCase) ||
+                   path.EndsWith("/Script/Engine.Character", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string ActorTypeName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name) || name == "None")
+                return "";
+            name = name.SubstringAfterLast('/').SubstringAfterLast('.');
+            if (name.EndsWith("_C", StringComparison.Ordinal))
+                name = name[..^2];
+            if (name.StartsWith('A') && name.Length > 1 && char.IsUpper(name[1]))
+                name = name[1..];
+            return name;
+        }
+
+        static string TryClassPath(UObject obj)
+        {
+            try
+            {
+                return obj.GetPathName();
+            }
+            catch
+            {
+                return obj.Name;
+            }
+        }
+
+        static string? SuperPath(FPackageIndex? super)
+        {
+            if (super == null || super.IsNull)
+                return null;
+            try
+            {
+                return super.ResolvedObject?.GetPathName() ?? super.Name;
+            }
+            catch
+            {
+                return super.Name;
+            }
+        }
+
+        static void AddNativeParentComponents(UClass generated, Dictionary<string, AssetComponent> byName)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string? parent = ActorTypeName(generated.SuperStruct?.Name);
+            UClass? cls = generated;
+            while (cls != null && seen.Add(cls.Name))
+            {
+                string type = ActorTypeName(cls.Name);
+                if (type is "Character" or "PaperCharacter" || type.EndsWith("Character", StringComparison.Ordinal))
+                {
+                    Add(byName, "CapsuleComponent", "CapsuleComponent", null, inherited: true, null);
+                    Add(byName, "ArrowComponent", "ArrowComponent", null, inherited: true, "CapsuleComponent");
+                    Add(byName, "Mesh", "SkeletalMeshComponent", null, inherited: true, "CapsuleComponent");
+                    Add(byName, "CharacterMovement", "CharacterMovementComponent", null, inherited: true, null);
+                    return;
+                }
+                if (type is "DefaultPawn" or "SpectatorPawn")
+                {
+                    Add(byName, "CollisionComponent", "SphereComponent", null, inherited: true, null);
+                    Add(byName, "MeshComponent", "StaticMeshComponent", null, inherited: true, "CollisionComponent");
+                    Add(byName, "MovementComponent", "FloatingPawnMovement", null, inherited: true, null);
+                    return;
+                }
+
+                parent = ActorTypeName(cls.SuperStruct?.Name);
+                if (parent is "Character" or "PaperCharacter" || parent.EndsWith("Character", StringComparison.Ordinal))
+                {
+                    Add(byName, "CapsuleComponent", "CapsuleComponent", null, inherited: true, null);
+                    Add(byName, "ArrowComponent", "ArrowComponent", null, inherited: true, "CapsuleComponent");
+                    Add(byName, "Mesh", "SkeletalMeshComponent", null, inherited: true, "CapsuleComponent");
+                    Add(byName, "CharacterMovement", "CharacterMovementComponent", null, inherited: true, null);
+                    return;
+                }
+
+                if (!TryLoadSuper(cls, out var next))
+                    break;
+                cls = next;
+            }
+        }
 
         static bool TryLoadSuper(UClass cls, out UClass? next)
         {

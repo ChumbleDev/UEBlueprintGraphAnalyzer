@@ -61,6 +61,8 @@ namespace UEBlueprintGraphViewer.Assets
             {
                 if (!asset.IsLikelyMacroGraphName(name))
                     continue;
+                if (IsAnimLeftoverGraph(name, exports))
+                    continue;
 
                 BPGraph? graph = graphExport != null
                     ? TryBuildGraph(graphExport, exports)
@@ -299,6 +301,16 @@ namespace UEBlueprintGraphViewer.Assets
         static bool IsTunnel(UObject nodeExport, BPNode node) =>
             node.NodeType.Contains("Tunnel", StringComparison.OrdinalIgnoreCase) ||
             nodeExport.ExportType.Contains("Tunnel", StringComparison.OrdinalIgnoreCase);
+
+        static bool IsAnimLeftoverGraph(string name, List<UObject> exports)
+        {
+            if (name.Equals("AnimGraph", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("StateMachine", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return exports.Any(o =>
+                string.Equals(o.Outer?.Name.ToString(), name, StringComparison.OrdinalIgnoreCase) &&
+                AnimBlueprintCollector.IsAnimOrStateNode(o));
+        }
 
         static bool IsEdGraph(UObject obj) =>
             obj.ExportType.Ends("EdGraph") && !obj.ExportType.Contains("Node", StringComparison.Ordinal);

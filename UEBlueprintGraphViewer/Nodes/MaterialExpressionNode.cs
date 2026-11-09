@@ -293,10 +293,15 @@ namespace UEBlueprintGraphViewer.Nodes
     public class MaterialFunctionCallNode : BPNode
     {
         public string Role { get; }
+        public FPackageIndex? FunctionIndex { get; }
+        public bool UsedFallback { get; }
 
-        public MaterialFunctionCallNode(string name, string role = "") : base(name, null)
+        public MaterialFunctionCallNode(string name, string role = "", FPackageIndex? functionIndex = null, bool usedFallback = false)
+            : base(name, null)
         {
             Role = role;
+            FunctionIndex = functionIndex;
+            UsedFallback = usedFallback;
             NodeType = "MaterialFunctionCall";
             Pure = true;
         }
@@ -318,5 +323,57 @@ namespace UEBlueprintGraphViewer.Nodes
             AddOutputPin(pin);
             TintPin = pin;
         }
+    }
+
+    public class MaterialOpNode : BPNode
+    {
+        public string? Attribute { get; }
+        public bool IsTextureSample { get; }
+
+        public MaterialOpNode(string name, IReadOnlyList<string> inputs, GraphPinType pinType, bool compact = false, string? attribute = null, string? outputValue = null, bool textureSample = false)
+            : base(name, null)
+        {
+            Attribute = attribute;
+            IsTextureSample = textureSample;
+            NodeType = textureSample ? "MaterialParameter" : "MaterialExpression";
+            Pure = true;
+            if (compact)
+            {
+                HeaderHidden = true;
+                ShowNameAsBody = true;
+            }
+
+            foreach (var input in inputs)
+                AddInputPin(new GraphPin(input, EEdGraphPinDirection.EGPD_Input, pinType));
+            var output = new GraphPin(textureSample ? "RGB" : "Output", EEdGraphPinDirection.EGPD_Output, pinType);
+            if (!string.IsNullOrEmpty(outputValue))
+                output.Value = outputValue;
+            if (compact)
+                output.IsNameHidden = true;
+            AddOutputPin(output);
+            TintPin = output;
+        }
+
+        public static MaterialOpNode Math(string name, int arity) =>
+            new(name, ArityNames(arity), MakePinType(PinType.Float), compact: true);
+
+        public static MaterialOpNode Constant(string value) =>
+            new(value, [], MakePinType(PinType.Float), compact: true, outputValue: value);
+
+        public static MaterialOpNode TextureSample(string name, string textureValue, string? attribute)
+        {
+            var node = new MaterialOpNode(name, [], MakePinType(PinType.Vector), compact: false, attribute, textureValue, textureSample: true);
+            node.AddInputPin(new GraphPin("UVs", EEdGraphPinDirection.EGPD_Input, MakePinType(PinType.Vector)));
+            return node;
+        }
+
+        static string[] ArityNames(int arity) =>
+            arity switch
+            {
+                1 => ["Input"],
+                2 => ["A", "B"],
+                3 => ["Input", "Min", "Max"],
+                _ => Enumerable.Range(0, arity).Select(i => $"In {i}").ToArray()
+            };
     }
 }

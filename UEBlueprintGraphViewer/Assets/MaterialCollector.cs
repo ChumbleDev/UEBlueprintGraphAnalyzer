@@ -30,6 +30,7 @@ namespace UEBlueprintGraphViewer.Assets
         public List<MaterialFunctionPin> Inputs { get; } = [];
         public List<MaterialFunctionPin> Outputs { get; } = [];
         public string Role { get; set; } = "";
+        public bool UsedFallback { get; set; }
     }
 
     public static class MaterialCollector
@@ -120,9 +121,14 @@ namespace UEBlueprintGraphViewer.Assets
             }
 
             if (func.Inputs.Count == 0)
+            {
                 AddFallbackPorts(func, inputsOnly: func.Outputs.Count > 0);
+                func.UsedFallback = true;
+            }
+            else if (func.Inputs.Count <= 2)
+                EnsureCommonInputs(func);
             if (func.Outputs.Count == 0)
-                func.Outputs.Add(new MaterialFunctionPin { Name = "Output", Type = "Float" });
+                func.Outputs.Add(new MaterialFunctionPin { Name = DefaultOutputName(func), Type = DefaultOutputType(func) });
         }
 
         static void CollectPorts(UObject obj, MaterialFunctionRef func)
@@ -148,7 +154,7 @@ namespace UEBlueprintGraphViewer.Assets
                     return;
                 if (func.Outputs.Any(o => o.Name.Equals(pin, StringComparison.OrdinalIgnoreCase)))
                     return;
-                func.Outputs.Add(new MaterialFunctionPin { Name = pin, Type = "Float" });
+                func.Outputs.Add(new MaterialFunctionPin { Name = pin, Type = OutputTypeName(pin) });
             }
         }
 
@@ -164,8 +170,37 @@ namespace UEBlueprintGraphViewer.Assets
             var name = obj.GetOrDefault<FName>("InputName").Text;
             if (MaterialGraphUtil.GuessRole(name) == "UV")
                 return "UV";
+            if (MaterialGraphUtil.GuessAttribute(name) is "BaseColor" or "EmissiveColor" or "Normal" or "SubsurfaceColor")
+                return "Vector";
             return "Float";
         }
+
+        static string OutputTypeName(string pin)
+        {
+            if (MaterialGraphUtil.GuessRole(pin) == "UV")
+                return "UV";
+            if (MaterialGraphUtil.GuessAttribute(pin) is "BaseColor" or "EmissiveColor" or "Normal" or "SubsurfaceColor")
+                return "Vector";
+            return "Float";
+        }
+
+        static string DefaultOutputName(MaterialFunctionRef func) =>
+            func.Role switch
+            {
+                "UV" => "UVs",
+                "Diffuse" => "Base Color",
+                "Normal" => "Normal",
+                "Emissive" => "Emissive Color",
+                _ => "Output"
+            };
+
+        static string DefaultOutputType(MaterialFunctionRef func) =>
+            func.Role switch
+            {
+                "UV" => "UV",
+                "Diffuse" or "Normal" or "Emissive" => "Vector",
+                _ => "Float"
+            };
 
         static bool IsUsefulPortName(string pin)
         {
@@ -177,6 +212,44 @@ namespace UEBlueprintGraphViewer.Assets
                 pin.StartsWith("FunctionOutput", StringComparison.OrdinalIgnoreCase))
                 return false;
             return true;
+        }
+
+        static void EnsureCommonInputs(MaterialFunctionRef func)
+        {
+            void AddIfMissing(string name, string type)
+            {
+                if (func.Inputs.Any(o => o.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                    return;
+                func.Inputs.Add(new MaterialFunctionPin { Name = name, Type = type });
+            }
+
+            if (!func.Inputs.Any(o => MaterialGraphUtil.IsUvPinName(o.Name)))
+                AddIfMissing("UVs", "UV");
+
+            switch (func.Role)
+            {
+                case "Diffuse":
+                    AddIfMissing("Base Color", "Texture");
+                    AddIfMissing("Tint", "Vector");
+                    AddIfMissing("Brightness", "Float");
+                    AddIfMissing("Contrast", "Float");
+                    break;
+                case "Normal":
+                    AddIfMissing("Normal", "Texture");
+                    AddIfMissing("Intensity", "Float");
+                    break;
+                case "Mask":
+                    AddIfMissing("Mask", "Texture");
+                    break;
+                case "Emissive":
+                    AddIfMissing("Emissive", "Texture");
+                    AddIfMissing("Intensity", "Float");
+                    break;
+                case "UV":
+                    AddIfMissing("Tiling", "Float");
+                    AddIfMissing("Offset", "Float");
+                    break;
+            }
         }
 
         static void AddFallbackPorts(MaterialFunctionRef func, bool inputsOnly = false)

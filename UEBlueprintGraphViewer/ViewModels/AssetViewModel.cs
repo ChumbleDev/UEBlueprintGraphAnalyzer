@@ -72,6 +72,9 @@ namespace UEBlueprintGraphViewer.ViewModels
         private bool _isMaterial;
 
         [ObservableProperty]
+        private bool _isAnimBlueprint;
+
+        [ObservableProperty]
         private string _eventsSectionTitle = "Event Graph";
 
         [ObservableProperty]
@@ -136,6 +139,17 @@ namespace UEBlueprintGraphViewer.ViewModels
             Components = [.. asset.Components.Select(o => new AssetComponentViewModel(o))];
             ComponentsFiltered = Components;
             IsMaterial = asset.IsMaterial;
+            IsAnimBlueprint = asset.IsAnimBlueprint;
+            if (asset.IsAnimBlueprint && asset.AnimGraphNames.Count > 0)
+            {
+                EventsSectionTitle = "Graphs";
+                Events =
+                [
+                    .. asset.AnimGraphNames.Select(o => new AssetFunctionViewModel(o)),
+                    .. asset.Events.Select(o => new AssetFunctionViewModel(o.Key, o.Value))
+                ];
+                EventsFiltered = Events;
+            }
             if (asset.IsMaterial)
             {
                 EventsSectionTitle = "Outputs";

@@ -31,6 +31,7 @@ namespace UEBlueprintGraphViewer
             Provider.PostMount();
             Provider.LoadVirtualPaths();
             Provider.ReadScriptData = true;
+            Provider.ReadShaderMaps = true;
             Provider.SkipReferencedTextures = false;
 
             OodleHelper.Initialize(Path.Combine(Directory.GetCurrentDirectory(), OodleHelper.OodleFileName));

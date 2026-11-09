@@ -35,6 +35,7 @@ namespace UEBlueprintGraphViewer.Engine
             Delegate,
             Struct,
             Wildcard,
+            Pose,
         }
 
         public struct GraphPinType

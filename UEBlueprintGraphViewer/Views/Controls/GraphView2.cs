@@ -513,6 +513,8 @@ public class GraphView2 : ContentControl
         {
             if (node.NodeType.StartsWith("K2Node_", StringComparison.Ordinal) && node.NodeType.Length > 7)
                 return node.NodeType[7..];
+            if (node.NodeType.StartsWith("AnimGraphNode_", StringComparison.Ordinal) && node.NodeType.Length > 14)
+                return node.NodeType[14..];
             return node.NodeType;
         }
 

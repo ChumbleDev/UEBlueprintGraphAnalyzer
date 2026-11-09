@@ -47,6 +47,8 @@ namespace UEBlueprintGraphViewer.Assets
         public List<MaterialTextureRecord> Textures { get; } = [];
         public List<MaterialFunctionRef> Functions { get; } = [];
         public List<MaterialAttributeWire> AttributeWires { get; } = [];
+        public List<PreshaderProgram> Preshaders { get; } = [];
+        public bool HasShaderMap { get; private set; }
         public List<string> InspectNotes { get; } = [];
 
         public static MaterialSnapshot Capture(Asset asset, IPackage package, UObject root)
@@ -58,6 +60,7 @@ namespace UEBlueprintGraphViewer.Assets
             snap.InspectPackage(package, root);
             snap.ReadAttributeWires(root);
             snap.ReadCachedData(root);
+            snap.ReadShaderMaps(root);
             snap.ReadInstanceOverrides(root);
             snap.ReadGetParams(root);
             snap.ReadFunctions(root);
@@ -446,6 +449,111 @@ namespace UEBlueprintGraphViewer.Assets
             if (tex is not UTexture texture)
                 return;
             AddTexture(texture.Name, texture.Name, texture.GetPathName(), attribute);
+        }
+
+        void ReadShaderMaps(UObject root)
+        {
+            if (root is not UMaterialInterface iface)
+                return;
+
+            var resources = iface.LoadedMaterialResources;
+            InspectNotes.Add($"Shader maps: {resources.Count}");
+            FUniformExpressionSet? best = null;
+            int bestScore = -1;
+            byte flags1 = 0;
+            byte flags2 = 0;
+
+            foreach (var resource in resources)
+            {
+                try
+                {
+                    if (resource.LoadedShaderMap?.Content is not FMaterialShaderMapContent content)
+                        continue;
+                    HasShaderMap = true;
+                    var set = content.MaterialCompilationOutput.UniformExpressionSet;
+                    int score = set.UniformPreshaders.Length + set.UniformScalarPreshaders.Length +
+                                set.UniformVectorPreshaders.Length + set.UniformNumericParameters.Length;
+                    foreach (var list in set.UniformTextureParameters)
+                        score += list?.Length ?? 0;
+                    if (score <= bestScore)
+                        continue;
+                    best = set;
+                    bestScore = score;
+                    flags1 = content.MaterialCompilationOutput.b1;
+                    flags2 = content.MaterialCompilationOutput.b2;
+                }
+                catch (Exception ex)
+                {
+                    InspectNotes.Add($"Shader map parse failed: {ex.Message}");
+                }
+            }
+
+            if (best == null)
+            {
+                if (resources.Count > 0)
+                    InspectNotes.Add("Shader map content: none usable");
+                return;
+            }
+
+            foreach (var param in best.UniformNumericParameters)
+            {
+                string name = param.ParameterInfo?.Name.Text ?? "";
+                string kind = param.ParameterType switch
+                {
+                    EMaterialParameterType.Vector or EMaterialParameterType.DoubleVector => "Vector",
+                    EMaterialParameterType.StaticSwitch => "Switch",
+                    _ => "Scalar"
+                };
+                AddParam(name, kind, param.Value?.ToString() ?? "");
+            }
+
+            foreach (var param in best.UniformScalarParameters)
+                AddParam(ParameterDisplayName(param), "Scalar", param.DefaultValue.ToString("0.###"));
+            foreach (var param in best.UniformVectorParameters)
+                AddParam(ParameterDisplayName(param), "Vector", FormatColor(param.DefaultValue));
+
+            var referenced = (root as UMaterial)?.ReferencedTextures;
+            foreach (var list in best.UniformTextureParameters)
+            {
+                if (list == null)
+                    continue;
+                foreach (var tex in list)
+                {
+                    string name = ParameterDisplayName(tex);
+                    string texName = name;
+                    string path = "";
+                    if (referenced != null && tex.TextureIndex >= 0 && tex.TextureIndex < referenced.Count && referenced[tex.TextureIndex] != null)
+                    {
+                        texName = referenced[tex.TextureIndex].Name;
+                        path = referenced[tex.TextureIndex].GetPathName();
+                    }
+                    AddTexture(name, texName, path, MaterialGraphUtil.GuessAttribute(name) ?? MaterialGraphUtil.GuessAttribute(texName));
+                }
+            }
+
+            try
+            {
+                Preshaders.AddRange(MaterialPreshaderDecoder.Decode(best));
+            }
+            catch (Exception ex)
+            {
+                InspectNotes.Add($"Preshader decode failed: {ex.Message}");
+            }
+
+            if ((flags1 & 0x10) != 0)
+                InspectNotes.Add("Shader uses World Position Offset");
+            if ((flags1 & 0x40) != 0)
+                InspectNotes.Add("Shader uses Pixel Depth Offset");
+            if ((flags2 & 0x08) != 0)
+                InspectNotes.Add("Shader uses Anisotropy");
+
+            InspectNotes.Add($"Preshader programs: {Preshaders.Count}");
+        }
+
+        static string ParameterDisplayName(FMaterialBaseParameterInfo info)
+        {
+            string name = info.ParameterInfo?.Name.Text ?? info.ParameterName ?? "";
+            return MaterialGraphUtil.CleanName(name);
         }
 
         void ReadFunctions(UObject root)

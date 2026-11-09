@@ -74,10 +74,19 @@ namespace UEBlueprintGraphViewer.Nodes
             if (snap != null)
             {
                 AddParameterNodes(graph, snap, claimedNames, resolver);
-                AddTextureNodes(graph, snap, claimedNames, resolver);
-                AddFunctionNodes(graph, snap, nodes, claimedNames, resolver);
+                AddTextureNodes(graph, snap, claimedNames, resolver, snap.HasShaderMap);
+                AddFunctionNodes(graph, snap, nodes, claimedNames, resolver, snap.HasShaderMap);
                 if (result != null)
-                    WireMaterialNetwork(graph, snap, result, resultPins);
+                {
+                    var preshaderRoots = snap.Preshaders.Count > 0
+                        ? EmitPreshaderGraphs(graph, snap)
+                        : [];
+                    WireMaterialNetwork(graph, snap, resultPins);
+                    ConnectPreshaderRoots(preshaderRoots, resultPins);
+                    CombineTexturesWithUniforms(graph, resultPins);
+                    AttachOrphanOps(graph, resultPins);
+                    HideUnusedMaterialPins(graph);
+                }
             }
             else
             {
@@ -89,7 +98,7 @@ namespace UEBlueprintGraphViewer.Nodes
                 graph.AddNode(new MaterialResultNode(asset.ObjectName) { Name = "No material data" });
             }
 
-            bool hasSynthetic = graph.Nodes.Any(o => o is MaterialParameterNode or MaterialFunctionCallNode);
+            bool hasSynthetic = graph.Nodes.Any(o => o is MaterialParameterNode or MaterialFunctionCallNode or MaterialOpNode);
             var expressionNodes = graph.Nodes.OfType<MaterialExpressionNode>().ToList();
             graph.UseSavedPositions = !hasSynthetic && expressionNodes.Count > 0 && expressionNodes.All(o => o.HasEditorPosition);
             if (graph.UseSavedPositions && result != null)
@@ -118,7 +127,7 @@ namespace UEBlueprintGraphViewer.Nodes
             var result = new MaterialResultNode(string.IsNullOrEmpty(name) ? "Material" : name);
             foreach (var attr in AlwaysShownAttributes)
             {
-                var pin = new GraphPin(PrettyAttribute(attr), EEdGraphPinDirection.EGPD_Input, MakePinType(PinType.Float));
+                var pin = new GraphPin(PrettyAttribute(attr), EEdGraphPinDirection.EGPD_Input, AttributePinType(attr));
                 result.AddInputPin(pin);
                 resultPins[attr] = pin;
             }
@@ -132,7 +141,7 @@ namespace UEBlueprintGraphViewer.Nodes
             {
                 if (!resultPins.TryGetValue(wire.Attribute, out var pin))
                 {
-                    pin = new GraphPin(PrettyAttribute(wire.Attribute), EEdGraphPinDirection.EGPD_Input, MakePinType(PinType.Float));
+                    pin = new GraphPin(PrettyAttribute(wire.Attribute), EEdGraphPinDirection.EGPD_Input, AttributePinType(wire.Attribute));
                     result.AddInputPin(pin);
                     resultPins[wire.Attribute] = pin;
                 }
@@ -163,21 +172,23 @@ namespace UEBlueprintGraphViewer.Nodes
             }
         }
 
-        static void AddTextureNodes(BPGraph graph, MaterialSnapshot snap, HashSet<string> claimed, MaterialLinkResolver resolver)
+        static void AddTextureNodes(BPGraph graph, MaterialSnapshot snap, HashSet<string> claimed, MaterialLinkResolver resolver, bool asSamples)
         {
             foreach (var tex in snap.Textures)
             {
                 if (!claimed.Add(tex.Name))
                     continue;
                 string value = string.IsNullOrEmpty(tex.TextureName) ? tex.Path : tex.TextureName;
-                var node = new MaterialParameterNode(tex.Name, value, MakePinType(PinType.Object), tex.Attribute);
+                BPNode node = asSamples
+                    ? MaterialOpNode.TextureSample(tex.Name, value, tex.Attribute)
+                    : new MaterialParameterNode(tex.Name, value, MakePinType(PinType.Object), tex.Attribute);
                 graph.AddNode(node);
                 resolver.Register(tex.Name, node);
                 resolver.Register(tex.TextureName, node);
             }
         }
 
-        static void AddFunctionNodes(BPGraph graph, MaterialSnapshot snap, Dictionary<UObject, MaterialExpressionNode> expressionNodes, HashSet<string> claimed, MaterialLinkResolver resolver)
+        static void AddFunctionNodes(BPGraph graph, MaterialSnapshot snap, Dictionary<UObject, MaterialExpressionNode> expressionNodes, HashSet<string> claimed, MaterialLinkResolver resolver, bool sampledTextures)
         {
             foreach (var expr in expressionNodes.Keys)
             {
@@ -192,7 +203,7 @@ namespace UEBlueprintGraphViewer.Nodes
             {
                 if (string.IsNullOrEmpty(funcRef.Name) || !claimed.Add(funcRef.Name))
                     continue;
-                var node = CreateFunctionNode(funcRef);
+                var node = CreateFunctionNode(funcRef, sampledTextures);
                 graph.AddNode(node);
                 resolver.Register(funcRef.Name, node);
             }
@@ -204,74 +215,146 @@ namespace UEBlueprintGraphViewer.Nodes
             {
                 if (string.IsNullOrEmpty(funcRef.Name) || !claimed.Add(funcRef.Name))
                     continue;
-                var node = CreateFunctionNode(funcRef);
+                var node = CreateFunctionNode(funcRef, false);
                 graph.AddNode(node);
                 resolver.Register(funcRef.Name, node);
             }
         }
 
-        static MaterialFunctionCallNode CreateFunctionNode(MaterialFunctionRef funcRef)
+        static MaterialFunctionCallNode CreateFunctionNode(MaterialFunctionRef funcRef, bool sampledTextures)
         {
             if (funcRef.Inputs.Count == 0 && funcRef.Outputs.Count == 0)
                 MaterialFunctionInterface.Fill(funcRef);
 
-            var node = new MaterialFunctionCallNode(funcRef.Name, funcRef.Role);
+            var node = new MaterialFunctionCallNode(funcRef.Name, funcRef.Role, funcRef.Index, funcRef.UsedFallback);
             foreach (var input in funcRef.Inputs)
-            {
-                var pinType = input.Type switch
-                {
-                    "Texture" => MakePinType(PinType.Object),
-                    "Bool" => MakePinType(PinType.Bool),
-                    "Vector" => MakePinType(PinType.Vector),
-                    _ => MakePinType(PinType.Float)
-                };
-                node.AddInputPin(new GraphPin(input.Name, EEdGraphPinDirection.EGPD_Input, pinType));
-            }
+                node.AddInputPin(new GraphPin(input.Name, EEdGraphPinDirection.EGPD_Input, FunctionPinType(input.Type, input.Name, sampledTextures)));
             foreach (var output in funcRef.Outputs)
-                node.AddOutputPin(new GraphPin(output.Name, EEdGraphPinDirection.EGPD_Output, MakePinType(PinType.Float)));
+                node.AddOutputPin(new GraphPin(output.Name, EEdGraphPinDirection.EGPD_Output, FunctionPinType(output.Type, output.Name, sampledTextures)));
             if (node.Output.Count == 0)
                 node.AddOutputPin(new GraphPin("Output", EEdGraphPinDirection.EGPD_Output, MakePinType(PinType.Float)));
             node.TintPin = node.Output.FirstOrDefault() ?? node.Input.FirstOrDefault();
             return node;
         }
 
-        static void WireMaterialNetwork(BPGraph graph, MaterialSnapshot snap, MaterialResultNode result, Dictionary<string, GraphPin> resultPins)
+        static GraphPinType FunctionPinType(string type, string name, bool sampledTextures)
+        {
+            if (MaterialGraphUtil.GuessRole(name) == "UV" || type.Equals("UV", StringComparison.OrdinalIgnoreCase))
+                return MakePinType(PinType.Vector);
+            if (sampledTextures && type.Equals("Texture", StringComparison.OrdinalIgnoreCase))
+                return MakePinType(PinType.Vector);
+            return type switch
+            {
+                "Texture" => MakePinType(PinType.Object),
+                "Bool" => MakePinType(PinType.Bool),
+                "Vector" => MakePinType(PinType.Vector),
+                _ => IsColorName(name) ? MakePinType(PinType.Vector) : MakePinType(PinType.Float)
+            };
+        }
+
+        static GraphPinType AttributePinType(string attr) =>
+            attr is "BaseColor" or "EmissiveColor" or "Normal" or "SubsurfaceColor" or "Tangent"
+                ? MakePinType(PinType.Vector)
+                : MakePinType(PinType.Float);
+
+        static bool IsColorName(string name) =>
+            MaterialGraphUtil.GuessAttribute(name) is "BaseColor" or "EmissiveColor" or "Normal" or "SubsurfaceColor";
+
+        static List<(BPNode Root, string? Attribute)> EmitPreshaderGraphs(BPGraph graph, MaterialSnapshot snap)
+        {
+            var existing = graph.Nodes
+                .Where(o => o is MaterialParameterNode or MaterialOpNode)
+                .GroupBy(o => o.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(o => o.Key, o => o.First(), StringComparer.OrdinalIgnoreCase);
+            var roots = new List<(BPNode Root, string? Attribute)>();
+
+            foreach (var program in snap.Preshaders)
+            {
+                if (program.Root == null)
+                    continue;
+                var root = EmitPreshader(graph, program.Root, existing);
+                if (root != null)
+                    roots.Add((root, program.GuessedAttribute));
+            }
+
+            return roots;
+        }
+
+        static void ConnectPreshaderRoots(List<(BPNode Root, string? Attribute)> roots, Dictionary<string, GraphPin> resultPins)
+        {
+            foreach (var (root, guessed) in roots)
+            {
+                if (HasOutgoing(root))
+                    continue;
+                string? attr = guessed;
+                if (attr == null || !resultPins.TryGetValue(attr, out var pin) || pin.LinkedTo.Count > 0)
+                    continue;
+                var output = MaterialLinkResolver.GetOutputPin(root, 0);
+                if (!MaterialLinkResolver.PinsCompatible(output, pin))
+                    continue;
+                MaterialLinkResolver.ConnectPins(output, pin);
+            }
+        }
+
+        static BPNode? EmitPreshader(BPGraph graph, PreshaderExpr expr, Dictionary<string, BPNode> existing)
+        {
+            if (expr.Kind == PreshaderKind.Parameter && !string.IsNullOrEmpty(expr.ParameterName))
+            {
+                if (existing.TryGetValue(expr.ParameterName, out var param))
+                    return param;
+                var created = new MaterialParameterNode(expr.ParameterName, "", MakePinType(PinType.Float), MaterialGraphUtil.GuessAttribute(expr.ParameterName));
+                graph.AddNode(created);
+                existing[expr.ParameterName] = created;
+                return created;
+            }
+
+            if (expr.Kind == PreshaderKind.Constant)
+            {
+                string key = "const:" + expr.Constant;
+                if (existing.TryGetValue(key, out var constant))
+                    return constant;
+                var node = MaterialOpNode.Constant(string.IsNullOrEmpty(expr.Constant) ? "0" : expr.Constant);
+                graph.AddNode(node);
+                existing[key] = node;
+                return node;
+            }
+
+            var op = MaterialOpNode.Math(expr.Name, Math.Max(expr.Args.Count, 1));
+            graph.AddNode(op);
+            for (int i = 0; i < expr.Args.Count && i < op.Input.Count; i++)
+            {
+                if (expr.Args[i].Kind == PreshaderKind.Constant)
+                {
+                    op.Input[i].Value = string.IsNullOrEmpty(expr.Args[i].Constant) ? "0" : expr.Args[i].Constant;
+                    continue;
+                }
+
+                var child = EmitPreshader(graph, expr.Args[i], existing);
+                MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(child, 0), op.Input[i]);
+            }
+            return op;
+        }
+
+        static void WireMaterialNetwork(BPGraph graph, MaterialSnapshot snap, Dictionary<string, GraphPin> resultPins)
         {
             var functions = graph.Nodes.OfType<MaterialFunctionCallNode>().ToList();
             var sources = graph.Nodes
-                .Where(o => o is MaterialParameterNode or MaterialExpressionNode)
+                .Where(o => o is MaterialParameterNode or MaterialExpressionNode or MaterialOpNode)
                 .Where(o => UnusedOutput(o) != null)
                 .ToList();
 
-            AssignBestMatches(functions, sources, 35);
-
-            var uvFunctions = functions.Where(o => FunctionRole(o, snap) == "UV").ToList();
-            foreach (var uv in uvFunctions)
-            {
-                var uvOut = MaterialLinkResolver.GetOutputPin(uv, 0);
-                if (uvOut == null)
-                    continue;
-                foreach (var func in functions)
-                {
-                    if (func == uv)
-                        continue;
-                    foreach (var pin in func.Input.Where(IsUvPin))
-                    {
-                        if (pin.LinkedTo.Count > 0)
-                            continue;
-                        MaterialLinkResolver.ConnectPins(uvOut, pin);
-                    }
-                }
-            }
-
-            AssignBestMatches(functions, functions.Where(o => FunctionRole(o, snap) != "UV").Cast<BPNode>().ToList(), 55);
+            FanUvOutputs(functions.Where(o => FunctionRole(o, snap) == "UV").ToList(), graph);
+            AssignBestMatches(functions, sources, 50);
+            AssignBestMatches(functions, functions.Where(o => FunctionRole(o, snap) != "UV").Cast<BPNode>().ToList(), 70);
 
             foreach (var func in functions)
-                WireFunctionToResult(func, snap, result, resultPins);
+                WireFunctionToResult(func, snap, resultPins);
 
             foreach (var source in sources)
             {
                 if (HasOutgoing(source) || source is MaterialFunctionCallNode)
+                    continue;
+                if (source is MaterialOpNode { IsTextureSample: false })
                     continue;
                 if (IsTextureSource(source))
                 {
@@ -284,7 +367,10 @@ namespace UEBlueprintGraphViewer.Nodes
                     continue;
                 if (!resultPins.TryGetValue(attr, out var pin) || pin.LinkedTo.Count > 0)
                     continue;
-                MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(source, 0), pin);
+                var output = MaterialLinkResolver.GetOutputPin(source, 0);
+                if (!MaterialLinkResolver.PinsCompatible(output, pin))
+                    continue;
+                MaterialLinkResolver.ConnectPins(output, pin);
             }
         }
 
@@ -313,18 +399,67 @@ namespace UEBlueprintGraphViewer.Nodes
             {
                 if (input.LinkedTo.Count > 0)
                     continue;
-                if (!reusable && HasOutgoing(source) && !IsUvSource(source))
+                if (!reusable && HasOutgoing(source) && !MaterialGraphUtil.IsUvNode(source))
                     continue;
-                MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(source, 0), input);
+                var output = MaterialLinkResolver.GetOutputPin(source, 0);
+                if (!MaterialGraphUtil.CanConnectMaterial(source, output, input))
+                    continue;
+                MaterialLinkResolver.ConnectPins(output, input);
+            }
+        }
+
+        static void FanUvOutputs(List<MaterialFunctionCallNode> uvFunctions, BPGraph graph)
+        {
+            foreach (var uv in uvFunctions)
+            {
+                var uvOut = MaterialLinkResolver.GetOutputPin(uv, 0);
+                if (uvOut == null)
+                    continue;
+                foreach (var node in graph.Nodes)
+                {
+                    if (node == uv)
+                        continue;
+                    foreach (var pin in node.Input.Where(o => MaterialGraphUtil.IsUvPinName(o.PinFriendlyName)))
+                    {
+                        if (pin.LinkedTo.Count > 0)
+                            continue;
+                        MaterialLinkResolver.ConnectPins(uvOut, pin);
+                    }
+                }
             }
         }
 
         static int ScoreMatch(BPNode source, GraphPin input, MaterialFunctionCallNode func)
         {
+            var output = MaterialLinkResolver.GetOutputPin(source, 0);
+            if (!MaterialLinkResolver.PinsCompatible(output, input))
+                return 0;
+
+            if (MaterialGraphUtil.IsUvPinName(input.PinFriendlyName))
+                return MaterialGraphUtil.IsUvNode(source) || MaterialGraphUtil.IsAppendOp(source) ? 90 : 0;
+            if (MaterialGraphUtil.IsUvNode(source) && source is not MaterialOpNode)
+                return 0;
+
+            if (source is MaterialOpNode { IsTextureSample: false } op)
+            {
+                if (IsAdjustPin(input.PinFriendlyName))
+                    return 74;
+                if (op.Name.Equals("Append", StringComparison.OrdinalIgnoreCase) &&
+                    MaterialGraphUtil.IsUvPinName(input.PinFriendlyName))
+                    return 88;
+                if (op.Name.Equals("Append", StringComparison.OrdinalIgnoreCase) &&
+                    (input.PinFriendlyName.Contains("Tile", StringComparison.OrdinalIgnoreCase) ||
+                     input.PinFriendlyName.Contains("Offset", StringComparison.OrdinalIgnoreCase)))
+                    return 80;
+                return 0;
+            }
+
             string sourceName = source.Name;
             string pinName = input.PinFriendlyName;
             if (sourceName.Equals(pinName, StringComparison.OrdinalIgnoreCase))
                 return 100;
+            if (MaterialGraphUtil.NamesMatch(sourceName, pinName))
+                return 96;
             if (NamesOverlap(sourceName, pinName))
                 return 88;
 
@@ -343,22 +478,20 @@ namespace UEBlueprintGraphViewer.Nodes
             if (string.IsNullOrEmpty(funcRole))
                 funcRole = MaterialGraphUtil.GuessRole(func.Name) ?? "";
 
-            bool texturePin = IsTexturePin(input);
+            bool colorPin = IsColorPin(input);
             bool sourceTex = IsTextureSource(source);
 
-            if (sourceTex && texturePin && RolesAlign(sourceRole, sourceAttr, funcRole, pinRole, pinAttr))
+            if (sourceTex && colorPin && RolesAlign(sourceRole, sourceAttr, funcRole, pinRole, pinAttr))
                 return 76;
-            if (sourceRole == "UV" && (pinRole == "UV" || IsUvPin(input)))
-                return 70;
             if (sourceRole == "Adjust" && IsAdjustPin(pinName))
-                return 66;
+                return 72;
+            if (sourceRole == "Adjust")
+                return 0;
             if (sourceRole != null && sourceRole == pinRole)
                 return 60;
-            if (sourceRole != null && sourceRole == funcRole && !texturePin)
-                return 52;
-            if (sourceTex && texturePin && string.IsNullOrEmpty(sourceRole) && string.IsNullOrEmpty(sourceAttr) && !string.IsNullOrEmpty(funcRole))
-                return 38;
-            return tokens >= 35 ? tokens : 0;
+            if (sourceTex && colorPin && string.IsNullOrEmpty(sourceRole) && string.IsNullOrEmpty(sourceAttr) && !string.IsNullOrEmpty(funcRole))
+                return 45;
+            return 0;
         }
 
         static bool RolesAlign(string? sourceRole, string? sourceAttr, string funcRole, string? pinRole, string? pinAttr)
@@ -380,7 +513,7 @@ namespace UEBlueprintGraphViewer.Nodes
             return false;
         }
 
-        static void WireFunctionToResult(MaterialFunctionCallNode func, MaterialSnapshot snap, MaterialResultNode result, Dictionary<string, GraphPin> resultPins)
+        static void WireFunctionToResult(MaterialFunctionCallNode func, MaterialSnapshot snap, Dictionary<string, GraphPin> resultPins)
         {
             string role = FunctionRole(func, snap);
             if (role == "UV")
@@ -388,18 +521,17 @@ namespace UEBlueprintGraphViewer.Nodes
 
             foreach (var output in func.Output)
             {
+                if (output.LinkedTo.Count > 0)
+                    continue;
                 string? attr = MaterialGraphUtil.GuessAttribute(output.PinFriendlyName)
+                               ?? (MaterialGraphUtil.CanonicalName(output.PinFriendlyName) is "output" or "result"
+                                   ? RoleToAttribute(role)
+                                   : null)
                                ?? MaterialGraphUtil.GuessAttribute(func.Name)
                                ?? RoleToAttribute(role);
                 if (attr == null)
                     continue;
-                if (!resultPins.TryGetValue(attr, out var pin))
-                {
-                    pin = new GraphPin(PrettyAttribute(attr), EEdGraphPinDirection.EGPD_Input, output.PinType);
-                    result.AddInputPin(pin);
-                    resultPins[attr] = pin;
-                }
-                if (pin.LinkedTo.Count > 0)
+                if (!resultPins.TryGetValue(attr, out var pin) || pin.LinkedTo.Count > 0)
                     continue;
                 MaterialLinkResolver.ConnectPins(output, pin);
             }
@@ -427,6 +559,126 @@ namespace UEBlueprintGraphViewer.Nodes
             MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(source, 0), pin);
         }
 
+        static void CombineTexturesWithUniforms(BPGraph graph, Dictionary<string, GraphPin> resultPins)
+        {
+            foreach (var (attr, pin) in resultPins.ToList())
+            {
+                var texture = graph.Nodes
+                    .OfType<MaterialOpNode>()
+                    .FirstOrDefault(o => o.IsTextureSample && !HasOutgoing(o) &&
+                                         (o.Attribute == attr || MaterialGraphUtil.GuessAttribute(o.Name) == attr));
+                if (texture == null)
+                    continue;
+
+                if (pin.LinkedTo.Count == 1)
+                {
+                    var uniform = pin.LinkedTo[0];
+                    if (uniform.ParentNode is MaterialFunctionCallNode)
+                        continue;
+                    Disconnect(uniform, pin);
+                    var multiply = ExistingOrNewMultiply(graph, texture, uniform.ParentNode);
+                    MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(multiply, 0), pin);
+                    continue;
+                }
+
+                if (pin.LinkedTo.Count == 0)
+                    MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(texture, 0), pin);
+            }
+        }
+
+        static MaterialOpNode ExistingOrNewMultiply(BPGraph graph, BPNode texture, BPNode? uniform)
+        {
+            var existing = graph.Nodes.OfType<MaterialOpNode>()
+                .FirstOrDefault(o => !o.IsTextureSample && !HasOutgoing(o) &&
+                                     (o.Name is "×" or "*" or "Multiply") &&
+                                     (uniform == null || o.Input.Any(p => p.LinkedTo.Any(l => l.ParentNode == uniform))));
+            if (existing != null)
+            {
+                var empty = existing.Input.FirstOrDefault(p => p.LinkedTo.Count == 0 && string.IsNullOrEmpty(p.Value));
+                if (empty != null)
+                    MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(texture, 0), empty);
+                return existing;
+            }
+
+            var multiply = MaterialOpNode.Math("×", 2);
+            graph.AddNode(multiply);
+            MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(texture, 0), multiply.Input[0]);
+            if (uniform != null)
+                MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(uniform, 0), multiply.Input[1]);
+            return multiply;
+        }
+
+        static void Disconnect(GraphPin a, GraphPin b)
+        {
+            a.LinkedTo.Remove(b);
+            b.LinkedTo.Remove(a);
+        }
+
+        static void AttachOrphanOps(BPGraph graph, Dictionary<string, GraphPin> resultPins)
+        {
+            var functions = graph.Nodes.OfType<MaterialFunctionCallNode>().ToList();
+            var orphans = graph.Nodes.OfType<MaterialOpNode>()
+                .Where(o => !o.IsTextureSample && !HasOutgoing(o))
+                .OrderByDescending(OpCompleteness)
+                .ToList();
+
+            foreach (var op in orphans)
+            {
+                if (HasOutgoing(op))
+                    continue;
+
+                GraphPin? best = null;
+                int bestScore = 0;
+                foreach (var func in functions)
+                {
+                    foreach (var input in func.Input.Where(p => p.LinkedTo.Count == 0))
+                    {
+                        int score = ScoreMatch(op, input, func);
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            best = input;
+                        }
+                    }
+                }
+
+                if (best != null && bestScore >= 50)
+                {
+                    MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(op, 0), best);
+                    continue;
+                }
+
+                string? attr = AttributeOf(op) ?? GuessAttributeFromInputs(op);
+                if (attr != null && resultPins.TryGetValue(attr, out var pin) && pin.LinkedTo.Count == 0)
+                {
+                    MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(op, 0), pin);
+                    continue;
+                }
+
+                var emptyAdjust = functions
+                    .SelectMany(f => f.Input)
+                    .FirstOrDefault(p => p.LinkedTo.Count == 0 && IsAdjustPin(p.PinFriendlyName) &&
+                                         MaterialLinkResolver.PinsCompatible(MaterialLinkResolver.GetOutputPin(op, 0), p));
+                if (emptyAdjust != null)
+                    MaterialLinkResolver.ConnectPins(MaterialLinkResolver.GetOutputPin(op, 0), emptyAdjust);
+            }
+        }
+
+        static int OpCompleteness(MaterialOpNode op) =>
+            op.Input.Count(p => p.LinkedTo.Count > 0 || !string.IsNullOrEmpty(p.Value));
+
+        static string? GuessAttributeFromInputs(BPNode node)
+        {
+            var names = node.Input
+                .SelectMany(p => p.LinkedTo.Select(l => l.ParentNode?.Name))
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Select(n => MaterialGraphUtil.GuessAttribute(n))
+                .Where(a => a != null)
+                .Distinct()
+                .ToList();
+            return names.Count == 1 ? names[0] : null;
+        }
+
         static string FunctionRole(MaterialFunctionCallNode func, MaterialSnapshot snap) =>
             !string.IsNullOrEmpty(func.Role)
                 ? func.Role
@@ -445,9 +697,12 @@ namespace UEBlueprintGraphViewer.Nodes
             };
 
         static string? AttributeOf(BPNode source) =>
-            source is MaterialParameterNode param && !string.IsNullOrEmpty(param.Attribute)
-                ? param.Attribute
-                : MaterialGraphUtil.GuessAttribute(source.Name);
+            source switch
+            {
+                MaterialParameterNode param when !string.IsNullOrEmpty(param.Attribute) => param.Attribute,
+                MaterialOpNode op when !string.IsNullOrEmpty(op.Attribute) => op.Attribute,
+                _ => MaterialGraphUtil.GuessAttribute(source.Name)
+            };
 
         static bool NamesOverlap(string a, string b)
         {
@@ -517,16 +772,6 @@ namespace UEBlueprintGraphViewer.Nodes
                 _ => []
             };
 
-        static bool IsUvPin(GraphPin pin)
-        {
-            string n = pin.PinFriendlyName;
-            return n.Equals("UVs", StringComparison.OrdinalIgnoreCase) ||
-                   n.Equals("UV", StringComparison.OrdinalIgnoreCase) ||
-                   n.Contains("TexCoord", StringComparison.OrdinalIgnoreCase) ||
-                   n.Contains("Coordinate", StringComparison.OrdinalIgnoreCase) ||
-                   MaterialGraphUtil.GuessRole(n) == "UV";
-        }
-
         static bool IsAdjustPin(string name)
         {
             string n = name.ToLowerInvariant();
@@ -534,20 +779,38 @@ namespace UEBlueprintGraphViewer.Nodes
                    n.Contains("intensity") || n.Contains("saturation");
         }
 
-        static bool IsTexturePin(GraphPin pin) =>
+        static bool IsColorPin(GraphPin pin) =>
+            pin.PinType.PinCategory == PinType.Vector ||
             pin.PinType.PinCategory == PinType.Object ||
-            pin.PinFriendlyName.Contains("texture", StringComparison.OrdinalIgnoreCase) ||
-            pin.PinFriendlyName.Contains("map", StringComparison.OrdinalIgnoreCase);
+            IsColorName(pin.PinFriendlyName);
 
         static bool IsTextureSource(BPNode node) =>
-            node is MaterialParameterNode && node.Output.Any(o => o.PinType.PinCategory == PinType.Object);
+            node is MaterialOpNode { IsTextureSample: true } ||
+            (node is MaterialParameterNode && node.Output.Any(o => o.PinType.PinCategory == PinType.Object));
 
-        static bool IsUvSource(BPNode node) =>
-            node is MaterialFunctionCallNode func
-                ? func.Role == "UV" || MaterialGraphUtil.GuessRole(func.Name) == "UV"
-                : MaterialGraphUtil.GuessRole(node.Name) == "UV";
+        static bool IsReusableSource(BPNode node) => MaterialGraphUtil.IsUvNode(node);
 
-        static bool IsReusableSource(BPNode node) => IsUvSource(node);
+        static void HideUnusedMaterialPins(BPGraph graph)
+        {
+            foreach (var node in graph.Nodes)
+            {
+                if (node is MaterialResultNode or K2Node_Comment)
+                    continue;
+
+                if (node is MaterialOpNode { IsTextureSample: true })
+                {
+                    foreach (var pin in node.Input)
+                    {
+                        if (pin.LinkedTo.Count > 0 || !string.IsNullOrEmpty(pin.Value) || pin.IsHidden)
+                            continue;
+                        pin.HidePin();
+                    }
+                }
+
+                foreach (var pin in node.Input.Concat(node.Output))
+                    pin.UpdateAnchor();
+            }
+        }
 
         static bool HasOutgoing(BPNode node) =>
             node.Output.Any(o => o.LinkedTo.Count > 0);

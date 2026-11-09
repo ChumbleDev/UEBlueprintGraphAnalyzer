@@ -332,6 +332,80 @@ namespace UEBlueprintGraphViewer.Nodes
 
         static bool ContainsToken(string normalized, params string[] tokens) =>
             tokens.Any(token => normalized.Contains(token, StringComparison.Ordinal));
+
+        public static string CanonicalName(string? name)
+        {
+            string n = NormalizeToken(CleanName(name));
+            if (n.Length == 0)
+                return "";
+            if (n.StartsWith("pm") && n.Length > 4)
+                n = n[2..];
+            else if (n.StartsWith("mf") && n.Length > 4)
+                n = n[2..];
+            else if (n.StartsWith("texture") && n.Length > 10)
+                n = n[7..];
+            return n switch
+            {
+                "uvs" or "texcoord" or "texcoords" or "coordinate" or "coordinates" => "uv",
+                "basecolour" => "basecolor",
+                "normals" => "normal",
+                _ => n
+            };
+        }
+
+        public static bool NamesMatch(string? a, string? b)
+        {
+            string ca = CanonicalName(a);
+            string cb = CanonicalName(b);
+            return ca.Length >= 2 && ca == cb;
+        }
+
+        public static bool IsUvPinName(string? name)
+        {
+            string n = CanonicalName(name);
+            return n is "uv" or "texcoord";
+        }
+
+        public static bool IsUvNode(BPNode node)
+        {
+            if (node is MaterialFunctionCallNode func)
+                return func.Role == "UV" || GuessRole(func.Name) == "UV";
+            string n = CanonicalName(node.Name);
+            return n is "uv" or "texcoord";
+        }
+
+        public static bool IsAppendOp(BPNode node) =>
+            node is MaterialOpNode { IsTextureSample: false } op &&
+            op.Name.Equals("Append", StringComparison.OrdinalIgnoreCase);
+
+        public static bool IsTextureLike(BPNode node) =>
+            node is MaterialOpNode { IsTextureSample: true } ||
+            (node is MaterialParameterNode && node.Output.Any(o => o.PinType.PinCategory == PinType.Object));
+
+        public static bool IsColorOrTexturePin(GraphPin pin)
+        {
+            if (pin.PinType.PinCategory == PinType.Object)
+                return true;
+            if (GuessRole(pin.PinFriendlyName) is "Diffuse" or "Normal" or "Mask" or "Emissive")
+                return true;
+            if (GuessAttribute(pin.PinFriendlyName) is "BaseColor" or "EmissiveColor" or "Normal" or "SubsurfaceColor")
+                return true;
+            string n = CanonicalName(pin.PinFriendlyName);
+            return n is "texture" or "tex" or "map" or "color" or "rgb";
+        }
+
+        public static bool CanConnectMaterial(BPNode source, GraphPin? from, GraphPin? to)
+        {
+            if (!MaterialLinkResolver.PinsCompatible(from, to) || to == null)
+                return false;
+            if (IsUvPinName(to.PinFriendlyName))
+                return IsUvNode(source) || IsAppendOp(source);
+            if (IsUvNode(source))
+                return IsUvPinName(to.PinFriendlyName);
+            if (IsTextureLike(source))
+                return IsColorOrTexturePin(to);
+            return true;
+        }
     }
 
     public sealed class MaterialLinkResolver
@@ -441,6 +515,27 @@ namespace UEBlueprintGraphViewer.Nodes
             return visible.Count == 1 ? visible[0] : null;
         }
 
+        public static bool PinsCompatible(GraphPin? from, GraphPin? to)
+        {
+            if (from == null || to == null)
+                return false;
+            if (from.IsInput && to.IsOutput)
+                (from, to) = (to, from);
+            if (!from.IsOutput || !to.IsInput)
+                return false;
+
+            var a = from.PinType.PinCategory;
+            var b = to.PinType.PinCategory;
+            if (a == b)
+                return true;
+            if (IsNumeric(a) && IsNumeric(b))
+                return true;
+            return false;
+        }
+
+        static bool IsNumeric(PinType type) =>
+            type is PinType.Float or PinType.Double or PinType.Vector or PinType.Int or PinType.Byte;
+
         public static void ConnectPins(GraphPin? from, GraphPin? to)
         {
             if (from == null || to == null || from == to)
@@ -452,6 +547,8 @@ namespace UEBlueprintGraphViewer.Nodes
             if (from.IsInput && to.IsOutput)
                 (from, to) = (to, from);
             if (!from.IsOutput || !to.IsInput)
+                return;
+            if (!PinsCompatible(from, to))
                 return;
             Utils.Connect(from, to);
         }

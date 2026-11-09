@@ -34,6 +34,7 @@ namespace UEBlueprintGraphViewer.Views
             { PinType.Delegate, FromColor(SKColors.Crimson) },
             { PinType.Struct, FromColor(SKColors.RoyalBlue) },
             { PinType.Wildcard, FromColor(SKColors.Gray) },
+            { PinType.Pose, FromColor(new SKColor(0, 186, 186)) },
             { PinType.Unknown, FromColor(SKColors.Red) },
         }.ToFrozenDictionary();
 
@@ -84,6 +85,11 @@ namespace UEBlueprintGraphViewer.Views
             { "MaterialFunctionCall", FromColor(new SKColor(130, 130, 130)) },
             { "MaterialFunctionPort", FromColor(new SKColor(134, 39, 159)) },
             { "MaterialResult", FromColor(new SKColor(134, 39, 159)) },
+            { "AnimGraphNode", FromColor(new SKColor(19, 114, 118)) },
+            { "AnimRoot", FromColor(new SKColor(134, 39, 159)) },
+            { "AnimStateMachine", FromColor(new SKColor(84, 129, 159)) },
+            { "AnimState", FromColor(new SKColor(149, 149, 16)) },
+            { "AnimTransition", FromColor(new SKColor(130, 130, 130)) },
         }.ToFrozenDictionary();
 
         public static SKPaint SKUnknownColor = FromColor(SKColors.Red);

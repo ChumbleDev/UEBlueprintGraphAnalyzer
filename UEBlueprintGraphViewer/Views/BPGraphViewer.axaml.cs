@@ -98,6 +98,17 @@ namespace UEBlueprintGraphViewer.Views
                 await OpenMaterialGraph();
                 return;
             }
+            if (VM.Asset.IsAnimBlueprint && VM.Asset.Asset?.AnimGraphs.Count > 0)
+            {
+                var anim = VM.Asset.Events.FirstOrDefault(o =>
+                    VM.Asset.Asset.AnimGraphs.ContainsKey(o.Name));
+                if (anim != null)
+                {
+                    AssetInfoPanel.SelectFunction(anim);
+                    await OpenAnimGraph(anim.Name);
+                    return;
+                }
+            }
             if (target != null)
             {
                 AssetInfoPanel.SelectFunction(target);
@@ -164,6 +175,12 @@ namespace UEBlueprintGraphViewer.Views
                 FocusMaterialName(func.Name);
                 return;
             }
+            if (VM.Asset.IsAnimBlueprint &&
+                VM.Asset.Asset?.AnimGraphs.ContainsKey(func.Name) == true)
+            {
+                await OpenAnimGraph(func.Name);
+                return;
+            }
             await OpenFunction(func);
         }
 
@@ -184,6 +201,32 @@ namespace UEBlueprintGraphViewer.Views
             GraphViewModel.SearchTerm = "";
             GraphViewModel.IsSearchVisible = false;
             RepositionViewport(FirstViewer, node ?? _graph.Nodes.OfType<MaterialResultNode>().FirstOrDefault());
+        }
+
+        async Task OpenAnimGraph(string name)
+        {
+            Clear();
+            SetProgressStateName("Building animation graph...");
+            try
+            {
+                _graph = VM.Asset.Asset?.AnimGraphs.GetValueOrDefault(name)
+                         ?? new BPGraph { IsAnimGraph = true, IsDataFlowGraph = true };
+                _graph2 = new();
+                await _graph.LayoutNodesMsaglAsync(UpdateProgress);
+                FirstViewer.Editor = GraphViewModel;
+                SecondViewer.Editor = GraphViewModel2;
+                AddNodesToLoad(_graph, _graph2);
+                RepositionViewportToGraph(FirstViewer, _graph);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Record(ex, "OpenAnimGraph");
+                await DialogWindow.Show(ErrorLog.DialogText(ex, "OpenAnimGraph"), "Failed to open animation graph");
+            }
+            finally
+            {
+                DisableProgress();
+            }
         }
 
         async Task OpenMaterialGraph()
